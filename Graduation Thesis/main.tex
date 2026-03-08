@@ -1,0 +1,249 @@
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage[fontsize=13pt]{scrextend}
+\usepackage[paperheight=29.7cm, paperwidth=21cm, right=2cm, left=3cm, top=2cm, bottom=2.5cm]{geometry}
+\usepackage{mathptmx}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{float}
+\usepackage{tikz}       % Thu vien tao khung bia
+\usetikzlibrary{calc}
+\usepackage{indentfirst}
+\usepackage{titlesec}
+\setcounter{secnumdepth}{4}     % 4 headings
+
+\hypersetup{
+    hypertextnames = false,
+    colorlinks = false,
+    linkbordercolor = {1 1 1}
+}
+
+\renewcommand{\baselinestretch}{1.2}
+\setlength{\parskip}{6pt}
+\setlength{\parindent}{1cm}
+\titlespacing*{\section}{0pt}{0pt}{30pt}            %Heading 1
+\titleformat*{\section}{\fontsize{16pt}{0pt}\selectfont \bfseries \centering}
+
+\titlespacing*{\subsection}{0pt}{10pt}{0pt}            %Heading 2
+\titleformat*{\subsection}{\fontsize{14pt}{0pt}\selectfont \bfseries}
+
+\titlespacing*{\subsubsection}{0pt}{10pt}{0pt}            %Heading 3
+\titleformat*{\subsubsection}{\fontsize{13pt}{0pt}\selectfont \bfseries \itshape}
+
+
+\titlespacing*{\paragraph}{0pt}{10pt}{0pt}            %Heading 4
+\titleformat*{\paragraph}{\fontsize{13pt}{0pt}\selectfont \itshape}
+
+
+\renewcommand{\theequation}{\thesection. \arabic{equation}}     %Numbering equation
+
+
+
+
+
+
+\begin{document}
+    \begin{titlepage}
+        \thispagestyle{empty}
+        \begin{center}
+            %School
+            \textbf{\fontsize{16pt}{0pt}\selectfont HANOI UNIVERSITY OF SCIENCE AND TECHNOLOGY \\
+            \vspace{0.4cm}
+            SCHOOL OF ELECTRICAL AND ELECTRONIC \\ \vspace{0.1cm} ENGINEERING}
+
+            \vspace{0.5cm}
+            %Logo
+            \begin{figure}[H]
+                \centering
+                \includegraphics[width=2cm, height=3cm]{Images/Logo/logohust.png}
+            \end{figure}
+            \vspace{1.8cm}
+            
+            %Title
+            \textbf{\fontsize{24pt}{0pt}\selectfont GRADUATION THESIS}
+            \vspace{1cm}
+            
+            %Project Name
+            \textbf{\fontsize{18pt}{0pt}\selectfont }
+            \vspace{1cm}
+
+            %Personal Information
+            \textbf{\fontsize{16pt}{0pt}\selectfont NGUYEN NGOC HUY \\                                  %Name
+            \vspace{0.4cm}
+            \textnormal{\fontsize{13pt}{0pt} Huy.NN222300@sis.hust.edu.vn} \\                           %Email
+            \vspace{1cm}
+            \fontsize{14pt}{0pt} Major in Control Engineering and Automation                            %Major
+            }
+
+            \vspace{3cm}
+
+            %Table
+            \begin{tabular}{l l}
+                \textbf{\fontsize{14pt}{0pt} \selectfont Supervisor:} & Associate Professor Dr.  \\
+                 & \\
+                \textbf{\fontsize{14pt}{0pt} \selectfont Department:} & Control Engineering and Automation \\
+                \textbf{\fontsize{14pt}{0pt} \selectfont School} & School of Electrical and Engineering
+            \end{tabular}
+        
+            \vspace{2.5cm}
+
+            \fontsize{18pt}{0pt} Hanoi, January 2025
+        \end{center}
+    \end{titlepage}
+
+    %Page 2
+    \cleardoublepage{}
+    \thispagestyle{empty}
+    \mbox{}
+
+    %Page 3
+    \cleardoublepage
+    
+    \section*{ACKNOWLEDGEMENTS}
+    \thispagestyle{empty}
+    I am deeply grateful to my supervisor Assoc. Prof. Dr. Dao Phuong Nam for his invaluable guidance,  patience, and unwavering support throughout this thesis.
+    His passion for the field of Automation and Control has been a constant source of inspiration and has contributed immeasurably to my growth.
+    
+    My sincere gratitude goes to my professors at the Hanoi University of Science and Technology, especially those in the School of Electrical and Electronic Engineering, for equipping me with extensive knowledge, enthusiasm, and an excellent academic environment during my studies. Special thanks also go to the members of the Mechanical Engineering Group for their helpful suggestions and input during the course of my work.
+
+
+    \vspace{4cm}
+    \hspace{8cm} Hanoi, January 18, 2025
+
+    \hspace{10cm}\textbf{Author}
+
+    \vspace{2cm}
+    \hspace{9cm}\textbf{Nguyen Ngoc Huy}
+    
+
+    \cleardoublepage
+    \thispagestyle{empty}
+    \mbox{}
+
+    
+    
+    %ABSTRACT
+    \cleardoublepage
+    \thispagestyle{empty}
+    \section*{ABSTRACT}
+    
+
+
+    \cleardoublepage
+    \thispagestyle{empty}
+    \mbox{}
+
+
+    \cleardoublepage
+
+    \addtocontents{toc}{\protect\thispagestyle{empty}}
+    {\protect\thispagestyle{empty}}
+    \tableofcontents
+    \thispagestyle{empty}
+    \cleardoublepage
+
+    \pagenumbering{roman}
+    \section*{LIST OF ACRONYMS}
+    \addcontentsline{toc}{section}{\numberline{} LIST OF ACRONYMS}
+
+    \begin{center}
+        \begin{tabular}{l @{\extracolsep{4cm}} l}
+             ADP & Adaptive Dynamic Programming \\
+             BLF & Barrier Lyapunov function \\
+             DLTI & Discrete-time linear time-invariant \\
+             LQR & Linear Quadratic Regulartor \\
+             LQT & Linear Quadratic Tracker \\
+             MIMO & Multi Input - Multi Output \\
+             LS & Least Square \\
+             PI & Policy Iteration \\
+             RL & Reinforcement Learning \\
+        \end{tabular}
+    \end{center}
+    
+    \cleardoublepage
+
+    \listoffigures %Create list of figures automatically
+    \addcontentsline{toc}{section}{\numberline{} LIST OF FIGURES}
+    \cleardoublepage
+
+    \listoftables
+    \addcontentsline{toc}{section}{\numberline{} LIST OF TABLES}
+    \cleardoublepage
+
+    `
+    \pagenumbering{arabic}
+    \section*{CHAPTER 1. INTRODUCTION}
+    \addcontentsline{toc}{section}{\numberline{} CHAPTER 1. INTRODUCTION}
+    In this chapter, the thesis research topic is introduced, including the reasons for the author's selection, potential applications, and stages of development of optimal control. The chapter then outlines the problem statement and research methods, critical contributions of the thesis, and concludes by providing an overview structure of the thesis in the final section.
+
+    \emph{Notation:} Throughout this thesis, \( \mathbb{R}\), \( \mathbb{N}\) to denote the sets of real, natural numbers, respectively. The operator \( \otimes\) is used to indicate the Kronecker product. For an arbitrary matrix S \(\in\) \(\mathbb{R}^{n\times n}\), \(\textbf{vec}(S) = [S^{T}_{1}, S^{T}_{2},...,S^{T}_{n}]^{T} \in \mathbb{R}^{n \times n}\) and \(\textbf{vecs}(S) = [s_{11}, 2s_{12},...,s_{1n},s_{22},\\
+    2s_{23},...,2s_{n-1,n},s_{nn}]^{T} \in \mathbb{R}^{n(n+1)/2}\) where \(S_{i} \in \mathbb{R}^{n}, s_{ii} \in \mathbb{R}, i = \overline{1,n}\) are the columns and elements of S. 
+    
+    For an arbitrary matrix \(x \in \mathbb{R}^{n}, \textbf{vecv}(x) = [x_{1}^{2},x_{1}x_{2},...,x_{1}x_{n},x_{2}^{2},x_{2}x_{3},...,x_{n-1}x_{n},x_{n}^{2}]^{T} \\ \in \mathbb{R}^{n(n+1)/2}\) where \(x_{i} \in \mathbb{R},i= \overline{1,n}\) are the elements of vector x.
+
+
+    \newpage
+    
+    \section*{CHAPTER 2. TRADITIONAL OPTIMAL ALGORITHM}
+    \addcontentsline{toc}{section}{\numberline{} CHAPTER 2. TRADITIONAL OPTIMAL ALGORITHM}
+
+    \setcounter{section}{2}
+    \setcounter{subsection}{0}
+
+    \subsection{Design controller for MAS}
+
+    \begin{equation}
+        \begin{array}{rcl}
+             z \triangleq (E^T \otimes I_n)x & , & w \triangleq (E^T \otimes I_m)u \\
+             \dot{z} & = & (E^T \otimes I_n)(I_N \otimes A)x + (E^T \otimes I_n)(I_N \otimes B)u \\ 
+             \dot{z} & = & (E^T \times I_N)\otimes(I_n \times A)x + (E^T \times I_N)\otimes(I_n \times B)u \\
+             \dot{z} & = & (E^T \otimes A)x + (E^T \otimes B)u
+        \end{array}
+        \label{eq:2.1}
+    \end{equation}
+
+    We have
+
+    \begin{equation}
+        \begin{array}{rcl}
+             L^{+}L & = & I_N - \frac{1}{N}11^T \\
+             I_N & = & L^{+}L + \frac{1}{N}11^T \\
+             I_N \otimes A & = & (L^{+}L + \frac{1}{N}11^T) \otimes A \\
+        \end{array}
+    \end{equation}
+
+    Combine with \eqref{eq:2.1} we have:
+    \begin{equation}
+        \begin{array}{rcl}
+             & &  \\
+             & 
+        \end{array}
+    \end{equation}
+
+
+    Proof: Let $(\lambda ,v)$ be any eigen-pair of L
+    \begin{equation}
+        \begin{array}{rl}
+             Lv & = \lambda v \\
+             E^TLv & = \lambda E^Tv \\
+             E^T(EE^T)v & = \lambda E^Tv \\
+             L_e(E^Tv) & = \lambda (E^Tv)
+        \end{array}
+    \end{equation}
+
+    Hence, $(\lambda, E^Tv)$ is also an eigen-pair of $L_e$
+
+    Consider the undirected graph $\mathcal{G}$ with $N$ nodes and $M$ edges. Let $L$ be the Laplacian matrix of $\mathcal{G}$, and $E$ be the incidence matrix of $\mathcal{G}$. Then, we have the following relationship between $L$ and $E$:
+
+    \begin{equation}
+        L = E E^T
+    \end{equation}
+
+    For each vertex $i \in V$, we have a corresponding point $pi \in R_d (d \geq 2)$
+
+    A formation (or a network) is defined by $(\mathcal{G},p)$, where the vector $p = [p_1,\dots,p_N] \in R_{dn}$ 
+ 
+\end{document}
