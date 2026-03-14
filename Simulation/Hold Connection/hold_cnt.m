@@ -1,172 +1,269 @@
-%% ========================================================================
-%  MÔ PHỎNG LUẬT GIỮ LIÊN KẾT CHO DRONE
-%  Dựa trên lý thuyết: Φ_c(p) = 1/[det(M)]^α với M = Q^T L(p) Q
-%  Luật điều khiển: u = -∇Φ_c(p)
-%  ========================================================================
-
+%% MÔ PHỎNG 5 DRONE - KẾT HỢP ĐIỀU KHIỂN ĐỘI HÌNH VÀ GIỮ LIÊN KẾT
 clear; clc; close all;
 
 %% ========================================================================
-%  1. THAM SỐ MÔ PHỎNG
+%  1. THAM SỐ
 %% ========================================================================
-n_drones = 4;           % số drone
-dim = 3;                 % không gian 3D
-delta = 10;              % ngưỡng giao tiếp (khoảng cách tối đa)
-omega = 1;               % độ dốc hàm sigmoid
-alpha = 2;               % tham số hàm thế
-dt = 0.05;               % bước thời gian
-T = 500;                  % tổng thời gian mô phỏng
-n_steps = T/dt;          % số bước mô phỏng
+n_drones = 5;
+dim = 3;
+dt = 0.02;
+T = 60;
+t = 0:dt:T;
+n_steps = length(t);
+
+% Tham số điều khiển
+alpha_form = 1.0;        % hệ số lực đội hình
+beta = 50.0;             % hệ số damping
+alpha_conn = 0.5;        % hệ số lực giữ liên kết
+delta = 12;              % ngưỡng giao tiếp (khoảng cách tối đa)
+omega_sigmoid = 1;       % độ dốc hàm sigmoid
+gamma_leader = 50.0;      % hệ số bám quỹ đạo leader
+beta_leader = 100.0;       % damping leader
+
+% Quỹ đạo leader
+R = 15;
+h = 8;
+vz = 0.5;
+omega = 0.2;
 
 %% ========================================================================
-%  2. TẠO MA TRẬN Q (CƠ SỞ TRỰC CHUẨN CHO MẶT PHẲNG BÙ)
+%  2. ĐỘI HÌNH MONG MUỐN
 %% ========================================================================
-fprintf('Tạo ma trận Q...\n');
+L = 6;
+H = 8;
+
+p_rel_star = zeros(dim, n_drones);
+p_rel_star(:,1) = [0; 0; 0];
+p_rel_star(:,2) = [L; L; -H];
+p_rel_star(:,3) = [L; -L; -H];
+p_rel_star(:,4) = [-L; L; -H];
+p_rel_star(:,5) = [-L; -L; -H];
+
+%% ========================================================================
+%  3. ĐỒ THỊ CỨNG 9 CẠNH
+%% ========================================================================
+edges = [1 2; 1 3; 1 4; 1 5; 2 3; 2 4; 3 4; 3 5; 4 5];
+m = size(edges, 1);
+fprintf('Số cạnh: %d (yêu cầu tối thiểu: %d)\n', m, 3*n_drones-6);
+
+% Danh sách neighbors
+neighbors = cell(n_drones, 1);
+for i = 1:n_drones
+    neighbors{i} = [];
+    for e = 1:m
+        if edges(e,1) == i
+            neighbors{i} = [neighbors{i}, edges(e,2)];
+        elseif edges(e,2) == i
+            neighbors{i} = [neighbors{i}, edges(e,1)];
+        end
+    end
+    neighbors{i} = sort(unique(neighbors{i}));
+end
+
+% Khoảng cách mong muốn
+d_star = zeros(m, 1);
+for e = 1:m
+    i = edges(e,1); j = edges(e,2);
+    d_star(e) = norm(p_rel_star(:,i) - p_rel_star(:,j));
+end
+
+%% ========================================================================
+%  4. TẠO MA TRẬN Q (CHO GIỮ LIÊN KẾT)
+%% ========================================================================
 Q = create_Q(n_drones);
 
 %% ========================================================================
-%  3. KHỞI TẠO VỊ TRÍ BAN ĐẦU
+%  5. KHỞI TẠO
 %% ========================================================================
-% Tạo vị trí ngẫu nhiên trong không gian [-15,15]^3
 P = zeros(dim, n_drones, n_steps);
-P(:,:,1) = 30 * rand(dim, n_drones) - 15;
+V = zeros(dim, n_drones, n_steps);
 
-fprintf('Vị trí ban đầu:\n');
-disp(P(:,:,1));
+P(:,1,1) = [0; 0; h];
+for i = 2:n_drones
+    P(:,i,1) = P(:,1,1) + p_rel_star(:,i) + 3*randn(3,1);
+end
+V(:,:,1) = zeros(dim, n_drones);
 
 %% ========================================================================
-%  4. VÒNG LẶP MÔ PHỎNG CHÍNH
+%  6. VÒNG LẶP MÔ PHỎNG
 %% ========================================================================
-fprintf('\nBắt đầu mô phỏng %d bước (T = %.1f s)...\n', n_steps, T);
+fprintf('\n=== BẮT ĐẦU MÔ PHỎNG ===\n');
 
+formation_error = zeros(n_steps, 1);
+leader_error = zeros(n_steps, 1);
 lambda2_history = zeros(n_steps, 1);
-detM_history = zeros(n_steps, 1);
 
 for k = 1:n_steps-1
-    p_current = P(:,:,k);
+    p_curr = P(:,:,k);
+    v_curr = V(:,:,k);
     
-    % 4.1. Tính lực điều khiển giữ liên kết
-    [u, detM, lambda2] = connectivity_control(p_current, delta, omega, Q, alpha);
+    % =====================================================================
+    %  LEADER (Drone 1)
+    % =====================================================================
+    i = 1;
+    p_ref = [R*cos(omega*t(k)); R*sin(omega*t(k)); vz*t(k)];
+    v_ref = [-R*omega*sin(omega*t(k)); R*omega*cos(omega*t(k)); 0];
+    u_leader = -gamma_leader * (p_curr(:,i) - p_ref) - beta_leader * (v_curr(:,i) - v_ref);
+    u(:,i) = u_leader;
+    leader_error(k+1) = norm(p_curr(:,i) - p_ref);
     
-    % 4.2. Lưu lịch sử
-    detM_history(k) = detM;
-    lambda2_history(k) = lambda2;
+    % =====================================================================
+    %  LỰC GIỮ LIÊN KẾT (cho tất cả drone)
+    % =====================================================================
+    [u_conn, lambda2] = connectivity_force(p_curr, delta, omega_sigmoid, Q, alpha_conn);
+    lambda2_history(k+1) = lambda2;
     
-    % 4.3. Cập nhật vị trí (Euler)
-    P(:,:,k+1) = p_current + u * dt;
+    % =====================================================================
+    %  FOLLOWERS (Drone 2-5) - KẾT HỢP ĐỘI HÌNH + LIÊN KẾT
+    % =====================================================================
+    for i = 2:n_drones
+        % Lực giữ đội hình (distance-based)
+        u_form = zeros(dim, 1);
+        for j = neighbors{i}
+            p_ij = p_curr(:,j) - p_curr(:,i);
+            dij = norm(p_ij);
+            
+            if dij > 1e-6
+                e_idx = find_edge_index(edges, i, j);
+                if e_idx > 0
+                    u_form = u_form + alpha_form * (dij^2 - d_star(e_idx)^2) * p_ij;
+                end
+            end
+        end
+        
+        % Damping
+        u_damp = -beta * v_curr(:,i);
+        
+        % Tổng hợp: formation + connectivity + damping
+        u(:,i) = u_form + u_conn(:,i) + u_damp;
+    end
     
-    % 4.4. Hiển thị tiến độ
+    % Cập nhật
+    V(:,:,k+1) = V(:,:,k) + u * dt;
+    P(:,:,k+1) = P(:,:,k) + V(:,:,k) * dt;
+    
+    % Tính sai số đội hình
+    error_sum = 0;
+    for e = 1:m
+        i = edges(e,1); j = edges(e,2);
+        dij = norm(P(:,i,k+1) - P(:,j,k+1));
+        error_sum = error_sum + (dij - d_star(e))^2;
+    end
+    formation_error(k+1) = sqrt(error_sum / m);
+    
     if mod(k, round(n_steps/10)) == 0
-        fprintf('  t = %.1f s, det(M) = %.4f, λ2 = %.4f\n', k*dt, detM, lambda2);
+        fprintf('  t = %.1f s, leader err=%.3f, form err=%.3f, λ2=%.3f\n', ...
+            k*dt, leader_error(k), formation_error(k), lambda2);
     end
 end
+
 fprintf('Mô phỏng hoàn tất!\n');
 
 %% ========================================================================
-%  5. VẼ KẾT QUẢ
+%  7. VẼ KẾT QUẢ
 %% ========================================================================
+figure('Name', 'Formation + Connectivity', 'Position', [50, 50, 1400, 900]);
 
-% 5.1. Vẽ quỹ đạo 3D
-figure('Position', [100, 100, 1200, 800]);
-
-% Quỹ đạo 3D
-subplot(2,3,[1,2,4,5]);
+%% 7.1. Quỹ đạo 3D
+subplot(2,3,[1,4]);
 colors = lines(n_drones);
-hold on;
+hold on; grid on; box on;
 
+% Quỹ đạo tham chiếu leader
+theta = 0:0.1:2*pi;
+plot3(R*cos(theta), R*sin(theta), h*ones(size(theta)), 'k--', 'LineWidth', 1.5);
+
+% Quỹ đạo thực tế
 for i = 1:n_drones
-    plot3(squeeze(P(1,i,:)), squeeze(P(2,i,:)), squeeze(P(3,i,:)), ...
-        'Color', colors(i,:), 'LineWidth', 1.5, 'DisplayName', sprintf('Drone %d', i));
+    if i == 1
+        plot3(squeeze(P(1,i,:)), squeeze(P(2,i,:)), squeeze(P(3,i,:)), ...
+            'r-', 'LineWidth', 3, 'DisplayName', 'Leader');
+    else
+        plot3(squeeze(P(1,i,:)), squeeze(P(2,i,:)), squeeze(P(3,i,:)), ...
+            'Color', colors(i,:), 'LineWidth', 1.5, ...
+            'DisplayName', sprintf('Follower %d', i));
+    end
 end
 
-% Đánh dấu vị trí đầu và cuối
+% Điểm đầu/cuối
 for i = 1:n_drones
-    % Vị trí đầu (hình tròn)
-    plot3(P(1,i,1), P(2,i,1), P(3,i,1), 'o', ...
-        'Color', colors(i,:), 'MarkerSize', 8, 'MarkerFaceColor', 'w', ...
-        'MarkerEdgeColor', colors(i,:));
-    
-    % Vị trí cuối (hình vuông)
-    plot3(P(1,i,end), P(2,i,end), P(3,i,end), 's', ...
-        'Color', colors(i,:), 'MarkerSize', 10, 'MarkerFaceColor', colors(i,:));
+    plot3(P(1,i,1), P(2,i,1), P(3,i,1), 'o', 'Color', colors(i,:), ...
+        'MarkerSize', 8, 'MarkerFaceColor', 'w');
+    plot3(P(1,i,end), P(2,i,end), P(3,i,end), 's', 'Color', colors(i,:), ...
+        'MarkerSize', 10, 'MarkerFaceColor', colors(i,:));
 end
 
-xlabel('x'); ylabel('y'); zlabel('z');
-title('Quỹ đạo drone với luật giữ liên kết');
+xlabel('x (m)'); ylabel('y (m)'); zlabel('z (m)');
+title('Kết hợp formation + connectivity');
 legend('Location', 'best');
-grid on; axis equal;
-view(45, 30);
+view(45,30); axis equal;
 
-% 5.2. Vẽ det(M) theo thời gian
+%% 7.2. Sai số leader
+subplot(2,3,2);
+plot(t, leader_error, 'r-', 'LineWidth', 2);
+xlabel('Thời gian (s)'); ylabel('Sai số (m)');
+title('Sai số leader');
+grid on;
+
+%% 7.3. Sai số đội hình
 subplot(2,3,3);
-time = (0:n_steps-1) * dt;
-plot(time, detM_history, 'b-', 'LineWidth', 2);
-xlabel('Thời gian (s)'); ylabel('det(M)');
-title('det(M) theo thời gian');
+plot(t, formation_error, 'b-', 'LineWidth', 2);
+xlabel('Thời gian (s)'); ylabel('Sai số RMS (m)');
+title('Sai số đội hình');
 grid on;
-ylim([0, max(detM_history)*1.1]);
 
-% 5.3. Vẽ λ2 theo thời gian
+%% 7.4. Chỉ số liên thông λ₂
+subplot(2,3,5);
+plot(t, lambda2_history, 'g-', 'LineWidth', 2);
+xlabel('Thời gian (s)'); ylabel('λ₂');
+title('Chỉ số liên thông');
+yline(0, 'r--', 'Nguy hiểm');
+grid on;
+
+%% 7.5. Khoảng cách
 subplot(2,3,6);
-plot(time, lambda2_history, 'r-', 'LineWidth', 2);
-xlabel('Thời gian (s)'); ylabel('\lambda_2');
-title('\lambda_2 (chỉ số liên thông)');
-grid on;
-ylim([0, max(lambda2_history)*1.1]);
+hold on; grid on; box on;
+for e = 1:m
+    i = edges(e,1); j = edges(e,2);
+    dist = squeeze(sqrt(sum((P(:,i,:) - P(:,j,:)).^2, 1)));
+    plot(t, dist(:), 'LineWidth', 1, 'DisplayName', sprintf('d_{%d%d}', i, j));
+end
+yline(delta, 'r--', 'Ngưỡng', 'LineWidth', 2);
+xlabel('Thời gian (s)'); ylabel('Khoảng cách (m)');
+title('Khoảng cách');
+legend('Location', 'best', 'NumColumns', 2);
 
-sgtitle('Mô phỏng luật giữ liên kết', 'FontSize', 14);
-
-%% ========================================================================
-%  6. VẼ KHÔNG GIAN GIAO TIẾP TẠI THỜI ĐIỂM CUỐI
-%% ========================================================================
-figure('Position', [100, 100, 800, 600]);
-
-% Tính ma trận kề tại thời điểm cuối
-A_final = adjacency_sigmoid(P(:,:,end), delta, omega);
-
-% Vẽ đồ thị giao tiếp
-G = graph(A_final, {'D1','D2','D3','D4'});
-plot(G, 'Layout', 'force', 'NodeColor', 'r', 'MarkerSize', 10, ...
-    'EdgeColor', 'b', 'LineWidth', 2);
-title(sprintf('Đồ thị giao tiếp tại t = %.1f s', T));
+sgtitle('Điều khiển đội hình + giữ liên kết', 'FontSize', 14, 'FontWeight', 'bold');
 
 %% ========================================================================
-%  7. FUNCTIONS (ĐẶT Ở CUỐI FILE)
+%  HÀM PHỤ TRỢ
 %% ========================================================================
 
-%% Hàm tạo ma trận Q
 function Q = create_Q(n)
-    % Tạo n-1 vector ngẫu nhiên
     Q = randn(n, n-1);
-    
-    % Gram-Schmidt để trực chuẩn hóa và vuông góc với 1_n
     for i = 1:n-1
-        % Trực giao với 1_n
         Q(:,i) = Q(:,i) - (1/n) * (ones(1,n) * Q(:,i)) * ones(n,1);
-        
-        % Trực giao với các vector trước
         for j = 1:i-1
             Q(:,i) = Q(:,i) - (Q(:,j)' * Q(:,i)) * Q(:,j);
         end
-        
-        % Chuẩn hóa
-        norm_i = norm(Q(:,i));
-        if norm_i > 1e-10
-            Q(:,i) = Q(:,i) / norm_i;
-        else
-            % Nếu vector gần 0, tạo lại
-            Q(:,i) = randn(n,1);
-            Q(:,i) = Q(:,i) - (1/n) * (ones(1,n) * Q(:,i)) * ones(n,1);
-            Q(:,i) = Q(:,i) / norm(Q(:,i));
+        Q(:,i) = Q(:,i) / norm(Q(:,i));
+    end
+end
+
+function e_idx = find_edge_index(edges, i, j)
+    e_idx = 0;
+    for e = 1:size(edges,1)
+        if (edges(e,1) == i && edges(e,2) == j) || ...
+           (edges(e,1) == j && edges(e,2) == i)
+            e_idx = e;
+            return;
         end
     end
 end
 
-%% Hàm tạo ma trận kề sigmoid
 function A = adjacency_sigmoid(P, delta, omega)
-    [n_dim, n] = size(P);
+    [~, n] = size(P);
     A = zeros(n);
-    
     for i = 1:n
         for j = i+1:n
             d_ij = norm(P(:,i) - P(:,j));
@@ -177,89 +274,54 @@ function A = adjacency_sigmoid(P, delta, omega)
     end
 end
 
-%% Hàm tạo ma trận Laplace
 function L = laplacian_from_adjacency(A)
     D = diag(sum(A, 2));
     L = D - A;
 end
 
-%% Hàm tính M = Q' * L * Q
 function M = compute_M(P, delta, omega, Q)
     A = adjacency_sigmoid(P, delta, omega);
     L = laplacian_from_adjacency(A);
     M = Q' * L * Q;
 end
 
-%% Hàm tính đạo hàm số của M theo vị trí
-function dM = numerical_dM_dp(P, i_coord, delta, omega, Q, eps)
-    % i_coord: [drone_index, coordinate_index] (vd: [2,1] là x của drone 2)
-    % eps: bước sai phân
-    % dM: đạo hàm của M theo tọa độ đó
-    
-    drone_i = i_coord(1);
-    coord_d = i_coord(2);
-    
-    % Tính M tại p
-    M0 = compute_M(P, delta, omega, Q);
-    
-    % Tính M tại p + eps
-    P_plus = P;
-    P_plus(coord_d, drone_i) = P_plus(coord_d, drone_i) + eps;
-    M_plus = compute_M(P_plus, delta, omega, Q);
-    
-    % Sai phân trung tâm (chính xác hơn)
-    P_minus = P;
-    P_minus(coord_d, drone_i) = P_minus(coord_d, drone_i) - eps;
-    M_minus = compute_M(P_minus, delta, omega, Q);
-    
-    dM = (M_plus - M_minus) / (2*eps);
-end
-
-%% Hàm tính luật điều khiển giữ liên kết
-function [u, detM, lambda2] = connectivity_control(P, delta, omega, Q, alpha)
-    [n_dim, n] = size(P);
+function [u_conn, lambda2] = connectivity_force(P, delta, omega, Q, alpha_conn)
+    [dim, n] = size(P);
+    u_conn = zeros(dim, n);
     
     % Tính M
     M = compute_M(P, delta, omega, Q);
-    
-    % Tính định thức
     detM = det(M);
     if detM < 1e-6
-        detM = 1e-6;  % tránh chia cho 0
+        detM = 1e-6;
     end
     
-    % Tính λ2 (chỉ số liên thông)
+    % Tính λ₂
     A = adjacency_sigmoid(P, delta, omega);
     L = laplacian_from_adjacency(A);
     e = eig(L);
     e = sort(e);
-    if length(e) >= 2
-        lambda2 = e(2);
-    else
-        lambda2 = 0;
-    end
+    lambda2 = e(2);
     
-    % Tính M^{-1}
-    invM = inv(M);
-    
-    % Tính gradient bằng sai phân số
-    u = zeros(n_dim, n);
-    eps = 1e-4;  % bước sai phân
-    
+    % Tính lực bằng sai phân số (đơn giản hóa)
+    eps = 1e-4;
     for i = 1:n
-        for d = 1:n_dim
-            % Tính đạo hàm của M theo tọa độ d của drone i
-            dM = numerical_dM_dp(P, [i, d], delta, omega, Q, eps);
+        for d = 1:dim
+            P_plus = P;
+            P_plus(d,i) = P_plus(d,i) + eps;
+            M_plus = compute_M(P_plus, delta, omega, Q);
             
-            % trace(M^{-1} * dM)
-            trace_val = trace(invM * dM);
+            P_minus = P;
+            P_minus(d,i) = P_minus(d,i) - eps;
+            M_minus = compute_M(P_minus, delta, omega, Q);
             
-            % Công thức (7.10)
-            u(d,i) = (alpha / detM^alpha) * trace_val;
+            dM_dp = (M_plus - M_minus) / (2*eps);
+            
+            u_conn(d,i) = alpha_conn * trace(M \ dM_dp) / detM^alpha_conn;
         end
     end
     
-    % Giới hạn lực điều khiển (tránh quá lớn)
-    max_u = 10;
-    u = max(min(u, max_u), -max_u);
+    % Giới hạn lực
+    max_u_conn = 2;
+    u_conn = max(min(u_conn, max_u_conn), -max_u_conn);
 end
