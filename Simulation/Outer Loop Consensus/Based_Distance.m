@@ -1,212 +1,165 @@
-%% MÔ PHỎNG ĐIỀU KHIỂN ĐỘI HÌNH DỰA TRÊN KHOẢNG CÁCH
-% 4 drone trong mặt phẳng 2D (dễ vẽ)
+
 clear; clc; close all;
 
 %% ========================================================================
 %  1. THAM SỐ
 %% ========================================================================
-n_drones = 4;           % số drone
-dim = 2;                 % không gian 2D (dễ vẽ)
-dt = 0.01;               % bước thời gian
-T = 30;                  % tổng thời gian
-t = 0:dt:T;              % vector thời gian
+n_drones = 5;
+dim = 3;
+dt = 0.01;
+T = 60;
+t = 0:dt:T;
 n_steps = length(t);
 
-%% ========================================================================
-%  2. ĐỘI HÌNH MONG MUỐN - HÌNH VUÔNG CẠNH 5
-%% ========================================================================
-L = 20;  % cạnh hình vuông
+% Quỹ đạo leader
+R = 15; omega = 0.2; h = 8; vz = 0.5;
+p_leader_true = [R*cos(omega*t); R*sin(omega*t); h + vz*t];
 
-% Vị trí mong muốn (tâm tại gốc)
-p_star = zeros(dim, n_drones);
-p_star(:,1) = [-L/2; -L/2];  % drone 1
-p_star(:,2) = [ L/2; -L/2];  % drone 2
-p_star(:,3) = [ L/2;  L/2];  % drone 3
-p_star(:,4) = [-L/2;  L/2];  % drone 4
+% Đội hình
+L = 6; H = 8;
+offset = [0, 0; L, L; L, -L; -L, L; -L, -L]';
+p_rel_star = [offset; zeros(1,5)];
 
-%% ========================================================================
-%  3. ĐỒ THỊ VÀ KHOẢNG CÁCH MONG MUỐN
-%% ========================================================================
-% Đồ thị: hình vuông đủ 4 cạnh + 1 đường chéo (để cứng)
-edges = [1 2; 2 3; 3 4; 4 1; 1 3];  % 5 cạnh
-m = size(edges, 1);
-
-% Tính khoảng cách mong muốn từ p_star
-d_star = zeros(m, 1);
-for e = 1:m
-    i = edges(e,1);
-    j = edges(e,2);
-    d_star(e) = norm(p_star(:,i) - p_star(:,j));
+% Vị trí thật
+P_true = zeros(dim, n_drones, n_steps);
+for k = 1:n_steps
+    for i = 1:n_drones
+        P_true(:,i,k) = p_leader_true(:,k) + p_rel_star(:,i);
+    end
 end
 
-% Hiển thị khoảng cách
-fprintf('Khoảng cách mong muốn:\n');
-for e = 1:m
-    fprintf('  d%d%d = %.2f\n', edges(e,1), edges(e,2), d_star(e));
+% Nhiễu ban đầu
+for i = 2:n_drones
+    P_true(:,i,1) = P_true(:,i,1) + 5*randn(3,1);
 end
 
 %% ========================================================================
-%  4. KHỞI TẠO VỊ TRÍ BAN ĐẦU (LỆCH SO VỚI MONG MUỐN)
+%  2. SWITCHING TOPOLOGY (periodic jointly connected)
 %% ========================================================================
-P = zeros(dim, n_drones, n_steps);
-P(:,:,1) = p_star + 3 * randn(dim, n_drones);  % nhiễu ngẫu nhiên
+edges1 = [1 2; 1 3; 2 3];           % Topo 1: leader + 2,3
+edges2 = [1 4; 1 5; 4 5];           % Topo 2: leader + 4,5
+edges3 = [2 3; 3 4; 4 5; 2 5];      % Topo 3: followers kết nối
 
-% Vẽ vị trí ban đầu
-fprintf('\nVị trí ban đầu:\n');
-disp(P(:,:,1)');
+T_cycle = 0.3;
+phase_durations = [0.1, 0.1, 0.1];
+
+function edges = get_topology(t, T_cycle, pd, e1, e2, e3)
+    t_mod = mod(t, T_cycle);
+    if t_mod < pd(1)
+        edges = e1;
+    elseif t_mod < pd(1)+pd(2)
+        edges = e2;
+    else
+        edges = e3;
+    end
+end
 
 %% ========================================================================
-%  5. VÒNG LẶP MÔ PHỎNG
+%  3. NHIỄU ĐO LƯỜNG
 %% ========================================================================
-fprintf('\nĐang mô phỏng...\n');
+gps_noise = 0.5;
+range_noise = 0.1;
+bearing_noise = 0.05;
 
-formation_error = zeros(n_steps, 1);
+%% ========================================================================
+%  4. KHỞI TẠO BỘ ĐỊNH VỊ
+%% ========================================================================
+P_est = zeros(dim, n_drones, n_steps);
+P_est(:,1,1) = P_true(:,1,1);
+for i = 2:n_drones
+    P_est(:,i,1) = 30 * randn(dim,1);
+end
+
+% Tham số
+mu = 5.0;
+mu_gps = 2.0;
+
+localization_error = zeros(n_steps, 1);
+
+%% ========================================================================
+%  5. VÒNG LẶP ĐỊNH VỊ
+%% ========================================================================
+fprintf('=== ĐỊNH VỊ ĐỘI HÌNH VỚI SWITCHING TOPOLOGY ===\n');
 
 for k = 1:n_steps-1
-    p_curr = P(:,:,k);
+    % Cập nhật GPS leader
+    P_est(:,1,k+1) = P_true(:,1,k+1);
     
-    % Tính lực điều khiển cho từng drone
-    u = zeros(dim, n_drones);
+    % Xác định topology
+    current_edges = get_topology(t(k), T_cycle, phase_durations, edges1, edges2, edges3);
     
+    % Đo vector tương đối
+    z_meas = zeros(dim, n_drones, n_drones);
+    for e = 1:size(current_edges,1)
+        i = current_edges(e,1);
+        j = current_edges(e,2);
+        
+        vec_true = P_true(:,j,k) - P_true(:,i,k);
+        d_true = norm(vec_true);
+        d_meas = d_true + range_noise * randn;
+        dir_meas = vec_true/d_true + bearing_noise * randn(3,1);
+        dir_meas = dir_meas / norm(dir_meas);
+        z_meas(:,j,i) = d_meas * dir_meas;
+        z_meas(:,i,j) = -z_meas(:,j,i);
+    end
+    
+    % Luật cập nhật (8.1): dP_i/dt = Σ (ẑ_ij - z_ij)
+    P_next = P_est(:,:,k);
     for i = 1:n_drones
-        for e = 1:m
-            if edges(e,1) == i
-                j = edges(e,2);
-                % Tính khoảng cách hiện tại
-                dij = norm(p_curr(:,i) - p_curr(:,j));
-                % Lực điều khiển
-                u(:,i) = u(:,i) + (dij^2 - d_star(e)^2) * (p_curr(:,j) - p_curr(:,i));
-                
-            elseif edges(e,2) == i
-                j = edges(e,1);
-                dij = norm(p_curr(:,i) - p_curr(:,j));
-                u(:,i) = u(:,i) + (dij^2 - d_star(e)^2) * (p_curr(:,j) - p_curr(:,i));
+        sum_error = zeros(dim,1);
+        for e = 1:size(current_edges,1)
+            if current_edges(e,1) == i
+                j = current_edges(e,2);
+                z_est = P_est(:,j,k) - P_est(:,i,k);
+                sum_error = sum_error + (z_est - z_meas(:,j,i));
+            elseif current_edges(e,2) == i
+                j = current_edges(e,1);
+                z_est = P_est(:,j,k) - P_est(:,i,k);
+                sum_error = sum_error + (z_est - z_meas(:,j,i));
             end
         end
+        dP = mu * sum_error;
+        P_next(:,i) = P_est(:,i,k) + dP * dt;
     end
+    P_est(:,:,k+1) = P_next;
+    P_est(:,1,k+1) = P_true(:,1,k+1) + gps_noise * randn(dim,1);
     
-    % Giới hạn lực (tránh sốc)
-    max_u = 5;
-    u = max(min(u, max_u), -max_u);
-    
-    % Cập nhật vị trí (Euler)
-    P(:,:,k+1) = P(:,:,k) + u * dt;
-    
-    % Tính sai số đội hình (RMS)
-    error_sum = 0;
-    count = 0;
-    for e = 1:m
-        i = edges(e,1); j = edges(e,2);
-        dij = norm(P(:,i,k+1) - P(:,j,k+1));
-        error_sum = error_sum + (dij - d_star(e))^2;
-        count = count + 1;
+    % Sai số
+    loc_error = 0;
+    for i = 1:n_drones
+        loc_error = loc_error + norm(P_est(:,i,k+1) - P_true(:,i,k+1))^2;
     end
-    formation_error(k+1) = sqrt(error_sum / count);
+    localization_error(k+1) = sqrt(loc_error / n_drones);
     
-    % Hiển thị tiến độ
     if mod(k, round(n_steps/10)) == 0
-        fprintf('  t = %.1f s, sai số = %.4f\n', k*dt, formation_error(k));
+        fprintf('t = %.1f s, loc err = %.3f m\n', k*dt, localization_error(k));
     end
 end
 
-fprintf('Mô phỏng hoàn tất!\n');
+fprintf('Sai số cuối: %.4f m\n', localization_error(end));
 
 %% ========================================================================
 %  6. VẼ KẾT QUẢ
 %% ========================================================================
-figure('Name', 'Kết quả mô phỏng', 'Position', [100, 100, 1400, 900]);
+figure('Position', [50, 50, 1200, 500]);
 
-%% 6.1. Quỹ đạo
-subplot(2,3,[1,4]);
+subplot(1,2,1);
 colors = lines(n_drones);
 hold on; grid on; box on;
-
 for i = 1:n_drones
-    plot(squeeze(P(1,i,:)), squeeze(P(2,i,:)), ...
-        'Color', colors(i,:), 'LineWidth', 1.5, ...
-        'DisplayName', sprintf('Drone %d', i));
-    
-    % Điểm đầu
-    plot(P(1,i,1), P(2,i,1), 'o', 'Color', colors(i,:), ...
-        'MarkerSize', 8, 'MarkerFaceColor', 'w');
-    
-    % Điểm cuối
-    plot(P(1,i,end), P(2,i,end), 's', 'Color', colors(i,:), ...
-        'MarkerSize', 10, 'MarkerFaceColor', colors(i,:));
+    plot3(squeeze(P_true(1,i,:)), squeeze(P_true(2,i,:)), squeeze(P_true(3,i,:)), ...
+        'Color', colors(i,:), 'LineWidth', 1.5, 'LineStyle', '-');
+    plot3(squeeze(P_est(1,i,:)), squeeze(P_est(2,i,:)), squeeze(P_est(3,i,:)), ...
+        'Color', colors(i,:), 'LineWidth', 1.5, 'LineStyle', '--');
 end
+xlabel('x'); ylabel('y'); zlabel('z');
+title('Định vị (thật: liền, ước lượng: đứt)');
+view(45,30); axis equal;
 
-% Vẽ đội hình mong muốn
-plot(p_star(1,:), p_star(2,:), 'ks', 'MarkerSize', 8, 'MarkerFaceColor', 'none');
-for e = 1:m
-    i = edges(e,1); j = edges(e,2);
-    plot([p_star(1,i) p_star(1,j)], [p_star(2,i) p_star(2,j)], ...
-        'k--', 'LineWidth', 1);
-end
-
-xlabel('x (m)'); ylabel('y (m)');
-title('Quỹ đạo drone');
-legend('Location', 'best');
-axis equal;
-
-%% 6.2. Sai số đội hình
-subplot(2,3,2);
-plot(t, formation_error, 'b-', 'LineWidth', 2);
+subplot(1,2,2);
+plot(t, localization_error, 'b-', 'LineWidth', 2);
 xlabel('Thời gian (s)'); ylabel('Sai số RMS (m)');
-title('Sai số đội hình');
+title('Sai số định vị');
 grid on;
 
-%% 6.3. Khoảng cách theo thời gian
-subplot(2,3,3);
-hold on; grid on; box on;
-
-for e = 1:m
-    i = edges(e,1); j = edges(e,2);
-    dist = squeeze(sqrt(sum((P(:,i,:) - P(:,j,:)).^2, 1)));
-    plot(t, dist(:), 'LineWidth', 1.5, 'DisplayName', sprintf('d_{%d%d}', i, j));
-end
-
-% Vẽ đường mong muốn
-for e = 1:m
-    yline(d_star(e), '--', 'Color', [0.5 0.5 0.5], 'LineWidth', 1);
-end
-
-xlabel('Thời gian (s)'); ylabel('Khoảng cách (m)');
-title('Khoảng cách giữa các drone');
-legend('Location', 'best');
-
-%% 6.4. Animation
-subplot(2,3,[5,6]);
-for k = 1:100:n_steps
-    cla;
-    hold on; grid on; box on;
-    
-    % Vị trí hiện tại
-    p_curr = P(:,:,k);
-    
-    for i = 1:n_drones
-        plot(p_curr(1,i), p_curr(2,i), 'o', 'Color', colors(i,:), ...
-            'MarkerSize', 10, 'MarkerFaceColor', colors(i,:));
-        text(p_curr(1,i)+0.3, p_curr(2,i)+0.3, num2str(i), ...
-            'Color', colors(i,:), 'FontWeight', 'bold');
-    end
-    
-    % Vẽ các cạnh hiện tại
-    for e = 1:m
-        i = edges(e,1); j = edges(e,2);
-        plot([p_curr(1,i) p_curr(1,j)], [p_curr(2,i) p_curr(2,j)], ...
-            'g-', 'LineWidth', 1);
-    end
-    
-    % Vẽ đội hình mong muốn (mờ)
-    plot(p_star(1,:), p_star(2,:), 'ks', 'MarkerSize', 8, 'MarkerFaceColor', 'none');
-    
-    xlabel('x (m)'); ylabel('y (m)');
-    title(sprintf('t = %.1f s, sai số = %.3f m', t(k), formation_error(k)));
-    xlim([-15, 15]); ylim([-15, 15]);
-    axis equal;
-    
-    drawnow;
-    pause(0.01);
-end
-
-sgtitle('Điều khiển đội hình dựa trên khoảng cách', 'FontSize', 14, 'FontWeight', 'bold');
+sgtitle('Định vị đội hình với switching topology (công thức 8.1)', 'FontSize', 14);
