@@ -1,0 +1,21 @@
+# Cấu hình chung
+camera:
+  device_id: 0
+  width: 640
+  height: 480
+  fps: 30
+
+detection:
+  model_name: 'yolov8n.pt'  # hoặc yolov8s.pt, yolov8m.pt
+  confidence_threshold: 0.5
+  iou_threshold: 0.45
+  classes_of_interest: [0, 2, 24, 44]  # person, car, backpack, bottle
+
+depth:
+  model_type: 'MiDaS_small'  # hoặc 'DPT_Large', 'DPT_Hybrid'
+  device: 'cuda'  # hoặc 'cpu'
+  
+output:
+  save_video: false
+  show_depth_map: true
+  show_fps: true

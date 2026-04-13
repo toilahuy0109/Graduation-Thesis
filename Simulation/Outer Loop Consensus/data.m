@@ -3,246 +3,244 @@ clear all; clc;
 %% ========================================================================
 % 1. GIÁ TRỊ KHỞI TẠO
 %% ========================================================================
-n_drones = 10;
-n_vertex = n_drones;
-dim = 3;
 
-% Vị trí ban đầu
-p1_init = [0; 0; 0];
-p2_init = [20; 0; 0];
-p3_init = [-20; 0; 0];
-p4_init = [15; 20; 0];
-p5_init = [15; -20; 0];
-p6_init = [30; 20; 0];
-p7_init = [40; 10; 0];
-p8_init = [10; 40; 0];
-p9_init = [5; 50; 0];
-p10_init = [45; 20; 0];
+params = struct();
+
+%% Parameters
+
+graph_params = struct();
+graph_params.n_drones = 10;
+graph_params.n_vertex = graph_params.n_drones;
+graph_params.dim = 3;
+
+
+leader_params = struct();
+leader_params.gamma_leader = 5;
+leader_params.beta_leader = 20;
+
+
+formation_params = struct();
+formation_params.alpha = 0.1;
+formation_params.K2 = 5;
+formation_params.beta = 5;
+formation_params.kp = 10;
+formation_params.kd = 2;
+
+
+avoid_params = struct();
+avoid_params.k = 0.3;
+avoid_params.alpha = 2;
+avoid_params.d_safe = 3;
+
+
+conn_params = struct();
+conn_params.omega = 30;
+conn_params.alpha = 4;
+conn_params.d_max = 100;
+
+estimation_params = struct();
+estimation_params.mu = 1;
+
+prior_params.K1 = 2;
+prior_params.k_conn = 0.5;
+prior_params.k_avoid = 5;
+prior_params.k_height = 25;
+
+
+
+% Vị trí ban đầu (random hoặc cố định)
+% Có thể dùng random hoặc set cụ thể
+use_random_initial = false;  % false để dùng vị trí cố định
+
+if use_random_initial
+    rng(42);
+    p1_init = [0; 0; 0] + 2*randn(3,1);
+    p2_init = [15; 10; 0] + 2*randn(3,1);
+    p3_init = [-10; 15; 0] + 2*randn(3,1);
+    p4_init = [5; -12; 0] + 2*randn(3,1);
+    p5_init = [-5; -8; 0] + 2*randn(3,1);
+    p6_init = [12; -5; 0] + 2*randn(3,1);
+    p7_init = [-12; 5; 0] + 2*randn(3,1);
+    p8_init = [8; 12; 0] + 2*randn(3,1);
+    p9_init = [-8; -10; 0] + 2*randn(3,1);
+    p10_init = [3; 15; 0] + 2*randn(3,1);
+else
+    % Vị trí ban đầu cố định
+    p1_init = [0; 0; 0];
+    p2_init = [10; 0; 0];
+    p3_init = [0; 10; 0];
+    p4_init = [-10; 0; 0];
+    p5_init = [0; -10; 0];
+    p6_init = [7; 7; 0];
+    p7_init = [-7; 7; 0];
+    p8_init = [-7; -7; 0];
+    p9_init = [7; -7; 0];
+    p10_init = [9; 5; 0];
+end
 
 p_init = [p1_init, p2_init, p3_init, p4_init, p5_init, ...
           p6_init, p7_init, p8_init, p9_init, p10_init];
 
-% Tham số an toàn
-d_safe = 5;
-d_max = 100;
-
 %% ========================================================================
-% 2. ĐỘI HÌNH MONG MUỐN - CÁC Ô VUÔNG CẠNH NHAU
+% 2. ĐỘI HÌNH MONG MUỐN - VÒNG TRÒN VỚI DRONE 1 Ở TÂM
 %% ========================================================================
-fprintf('\n=== ĐỘI HÌNH CÁC Ô VUÔNG CẠNH NHAU ===\n');
+fprintf('\n=== ĐỘI HÌNH VÒNG TRÒN ===\n');
 
-% Kích thước ô vuông (cạnh 10m)
-square_size = 20;
+% Bán kính vòng tròn
+R = 12;              % Bán kính vòng tròn (m)
+H = 3;               % Độ cao của các drone trên vòng tròn
 
-% Cấu trúc: 2 ô vuông cạnh nhau
-% Ô vuông 1: drone 1,2,3,4
-% Ô vuông 2: drone 5,6,7,8
-% Drone 9,10 ở vị trí khác
+% Drone 1 ở tâm
+p_rel_star = zeros(graph_params.dim, graph_params.n_drones);
+p_rel_star(:,1) = [0; 0; 0];  % Drone 1 (leader) ở tâm
 
-% Ô vuông thứ nhất (bên trái)
-p_rel_star = zeros(dim, n_drones);
-p_rel_star(:,1) = [0; 0; 0];           % Góc dưới trái
-p_rel_star(:,2) = [square_size; 0; 0]; % Góc dưới phải
-p_rel_star(:,3) = [0; square_size; 0]; % Góc trên trái
-p_rel_star(:,4) = [square_size; square_size; 0]; % Góc trên phải
+% Tạo 9 góc đều nhau cho 9 drone còn lại
+angles = linspace(0, 2*pi, graph_params.n_drones)';  % 10 góc
+angles = angles(1:end-1);                % Lấy 9 góc đầu (bỏ góc cuối trùng góc đầu)
 
-% Ô vuông thứ hai (bên phải, cách ô thứ nhất 10m)
-offset_x = square_size + 20;  % Cách nhau 10m
-p_rel_star(:,5) = [offset_x; 0; 0];                    % Góc dưới trái
-p_rel_star(:,6) = [offset_x; square_size; 0];      % Góc dưới phải
-p_rel_star(:,7) = [offset_x + square_size; 0; 0];          % Góc trên trái
-p_rel_star(:,8) = [offset_x + square_size; square_size; 0]; % Góc trên phải
-
-% Drone 9 và 10 tạo thành ô vuông thứ ba (phía trên, cách 10m)
-offset_y = square_size + 20;
-p_rel_star(:,9) = [0; offset_y; 0];                    % Góc dưới trái
-p_rel_star(:,10) = [square_size; offset_y; 0];         % Góc dưới phải
-
-
-% Hiển thị vị trí
-fprintf('\nVị trí các drone (các ô vuông cách nhau 10m):\n');
-fprintf('Drone\tX (m)\tY (m)\tZ (m)\tThuộc ô\n');
-for i = 1:n_drones
-    if i <= 4
-        fprintf('%d\t%.2f\t%.2f\t%.2f\tÔ vuông 1\n', i, p_rel_star(1,i), p_rel_star(2,i), p_rel_star(3,i));
-    elseif i <= 8
-        fprintf('%d\t%.2f\t%.2f\t%.2f\tÔ vuông 2\n', i, p_rel_star(1,i), p_rel_star(2,i), p_rel_star(3,i));
-    else
-        fprintf('%d\t%.2f\t%.2f\t%.2f\tÔ vuông 3 (chưa đủ)\n', i, p_rel_star(1,i), p_rel_star(2,i), p_rel_star(3,i));
-    end
+% Phân bố đều trên vòng tròn với độ cao thay đổi
+for i = 2:graph_params.n_drones
+    theta = angles(i-1);
+    % Vị trí trên vòng tròn với độ cao thay đổi theo sin để tạo hiệu ứng 3D
+    p_rel_star(:,i) = [R * cos(theta); R * sin(theta); H * sin(2*theta)];
 end
 
+
 %% ========================================================================
-% 3. ĐỒ THỊ CỨNG VỚI CÁC CẠNH KẾT NỐI
+% 3. ĐỒ THỊ CỨNG VỚI CÁC CẠNH KẾT NỐI (ĐỦ 24 CẠNH)
 %% ========================================================================
-% Cạnh trong ô vuông 1 (4 drone tạo thành hình vuông)
-edges_square1 = [
-    1, 2;  % Cạnh dưới
-    1, 3;  % Cạnh trái
-    2, 4;  % Cạnh phải
-    3, 4;  % Cạnh trên
-    1, 4;  % Đường chéo chính
-    2, 3   % Đường chéo phụ
-];
+% Cạnh từ drone trung tâm (drone 1) đến tất cả các drone khác
+edges_center = [];
+for i = 2:graph_params.n_drones
+    edges_center = [edges_center; 1, i];
+end
 
-% Cạnh trong ô vuông 2
-edges_square2 = [
-    5, 6;  % Cạnh dưới
-    5, 7;  % Cạnh trái
-    6, 8;  % Cạnh phải
-    7, 8;  % Cạnh trên
-    5, 8;  % Đường chéo chính
-    6, 7   % Đường chéo phụ
-];
+% Cạnh vòng tròn giữa các drone trên vòng tròn (kết nối các drone lân cận)
+edges_circle = [];
+for i = 2:graph_params.n_drones-1
+    edges_circle = [edges_circle; i, i+1];
+end
+edges_circle = [edges_circle; graph_params.n_drones, 2];  % Kết nối drone cuối với drone đầu
 
-% Cạnh trong ô vuông 3 (chỉ có 2 drone nên chỉ 1 cạnh)
-edges_square3 = [
-    9, 10   % Cạnh nối 2 drone
-];
-
-% Cạnh nối giữa các ô vuông (để đảm bảo liên thông)
-edges_between = [
-    1, 5;   % Nối ô 1 và ô 2
-    4, 8;   % Nối ô 1 và ô 2
-    3, 7;   % Nối ô 1 và ô 2
-    2, 6;   % Nối ô 1 và ô 2
-    1, 9;   % Nối ô 1 và ô 3
-    2, 10;  % Nối ô 1 và ô 3
-    5, 9;   % Nối ô 2 và ô 3
-    6, 10   % Nối ô 2 và ô 3
+% Cạnh chéo để tăng độ cứng (đảm bảo đủ 24 cạnh)
+edges_diagonal = [
+    2, 4;  3, 5;  4, 6;  5, 7;  6, 8;  7, 9;  8, 10;  9, 2;
+    2, 5;  3, 6;  4, 7;  5, 8;  6, 9;  7, 10;  8, 2;  9, 3; 
+    2, 7;  3, 8;  4, 9;  5, 10
 ];
 
 % Ghép tất cả edges
-edges = [edges_square1; edges_square2; edges_square3; edges_between];
-n_edges = size(edges, 1);
+
+graph_params.edges = [edges_center; edges_circle; edges_diagonal];
+n_edges = size(graph_params.edges, 1);
 
 fprintf('\n=== ĐỒ THỊ ===\n');
-fprintf('Số cạnh: %d (yêu cầu tối thiểu: %d)\n', n_edges, 3*n_drones-6);
+fprintf('Số cạnh: %d (yêu cầu tối thiểu: %d)\n', n_edges, 3*graph_params.n_drones-6);
 
-if n_edges < 3*n_drones-6
-    fprintf('⚠️  Đồ thị có %d cạnh, cần thêm %d cạnh để đủ cứng\n', n_edges, 3*n_drones-6 - n_edges);
+if n_edges < 3*graph_params.n_drones-6
+    fprintf('Đồ thị có %d cạnh, cần thêm %d cạnh để đủ cứng\n', n_edges, 3*graph_params.n_drones-6 - n_edges);
 else
-    fprintf('✓ Đồ thị đủ cứng trong 3D\n');
+    fprintf('Đồ thị đủ cứng trong 3D\n');
 end
 
 % Hiển thị edges
 fprintf('\n=== DANH SÁCH EDGES ===\n');
-fprintf('Cạnh trong ô vuông 1: %d cạnh\n', size(edges_square1,1));
-fprintf('Cạnh trong ô vuông 2: %d cạnh\n', size(edges_square2,1));
-fprintf('Cạnh trong ô vuông 3: %d cạnh\n', size(edges_square3,1));
-fprintf('Cạnh nối giữa các ô: %d cạnh\n', size(edges_between,1));
 fprintf('Tổng: %d cạnh\n', n_edges);
 
-% Danh sách neighbors
-neighbors = cell(n_drones, 1);
-for i = 1:n_drones
-    neighbors{i} = [];
-    for e = 1:n_edges
-        if edges(e,1) == i
-            neighbors{i} = [neighbors{i}, edges(e,2)];
-        elseif edges(e,2) == i
-            neighbors{i} = [neighbors{i}, edges(e,1)];
-        end
-    end
-    neighbors{i} = sort(unique(neighbors{i}));
-end
-
-fprintf('\n=== DANH SÁCH NEIGHBORS ===\n');
-for i = 1:n_drones
-    if ~isempty(neighbors{i})
-        fprintf('Drone %d neighbors (%d): ', i, length(neighbors{i}));
-        fprintf('%d ', neighbors{i});
-        fprintf('\n');
-    end
-end
 
 % Tính khoảng cách mong muốn
-d_star = zeros(n_edges, 1);
-fprintf('\n=== KHOẢNG CÁCH MONG MUỐN ===\n');
+
+formation_params.d_star = zeros(n_edges, 1);
+
 for e = 1:n_edges
-    i = edges(e,1);
-    j = edges(e,2);
-    d_star(e) = norm(p_rel_star(:,i) - p_rel_star(:,j));
-    if e <= 20
-        fprintf('  d%d%d* = %.2f m\n', i, j, d_star(e));
-    end
-end
-if n_edges > 20
-    fprintf('  ... và %d cạnh khác\n', n_edges-20);
+    i = graph_params.edges(e,1);
+    j = graph_params.edges(e,2);
+    formation_params.d_star(e) = norm(p_rel_star(:,i) - p_rel_star(:,j));
 end
 
 %% ========================================================================
 % 4. MA TRẬN Q (CHO HOLD CONNECTION)
 %% ========================================================================
-Q = randn(n_drones, n_drones-1);
-for i = 1:n_drones-1
+conn_params.Q = randn(graph_params.n_drones, graph_params.n_drones-1);
+for i = 1:graph_params.n_drones-1
     % Trừ đi thành phần theo vector đơn vị
-    Q(:,i) = Q(:,i) - (1/n_drones)*(sum(Q(:,i))) * ones(n_drones,1);
+    conn_params.Q(:,i) = conn_params.Q(:,i) - (1/graph_params.n_drones)*(sum(conn_params.Q(:,i))) * ones(graph_params.n_drones,1);
     % Gram-Schmidt orthogonalization
     for j = 1:i-1
-        Q(:,i) = Q(:,i) - (Q(:,j)' * Q(:,i)) * Q(:,j);
+        conn_params.Q(:,i) = conn_params.Q(:,i) - (conn_params.Q(:,j)' * conn_params.Q(:,i)) * conn_params.Q(:,j);
     end
     % Chuẩn hóa
-    if norm(Q(:,i)) > 1e-10
-        Q(:,i) = Q(:,i) / norm(Q(:,i));
+    if norm(conn_params.Q(:,i)) > 1e-10
+        conn_params.Q(:,i) = conn_params.Q(:,i) / norm(conn_params.Q(:,i));
     end
 end
 
 fprintf('\n=== MA TRẬN Q ===\n');
-fprintf('Kích thước Q: %d x %d\n', size(Q,1), size(Q,2));
-fprintf('Kiểm tra Q''*Q (phải là ma trận đơn vị):\n');
-disp(Q' * Q);
-fprintf('Kiểm tra sum(Q) (mỗi cột phải gần bằng 0):\n');
-disp(sum(Q));
+fprintf('Kích thước Q: %d x %d\n', size(conn_params.Q,1), size(conn_params.Q,2));
+
+
+global edges
+edges = graph_params.edges;
 
 %% ========================================================================
-% 5. THỐNG KÊ ĐỘI HÌNH
+% 7. CẤU HÌNH TẤN CÔNG
 %% ========================================================================
-fprintf('\n=== THỐNG KÊ ĐỘI HÌNH Ô VUÔNG ===\n');
+attack_scenario = 1;
 
-% Khoảng cách đến leader (drone 1)
-fprintf('\nKhoảng cách đến leader (drone 1):\n');
-for i = 2:n_drones
-    dist = norm(p_rel_star(:,i) - p_rel_star(:,1));
-    fprintf('Drone %d: %.2f m\n', i, dist);
-end
+attack_config = struct();
+attack_config.start_time = 10;
+attack_config.end_time = 25;
+attack_config.target_drones = [2, 5, 8];
 
-% Thống kê khoảng cách
-all_dist = [];
-for i = 1:n_drones
-    for j = i+1:n_drones
-        all_dist = [all_dist; norm(p_rel_star(:,i) - p_rel_star(:,j))];
-    end
-end
+% Parameters
+attack_config.fdi_bias = [8; 6; 3];
+attack_config.fdi_scale = 2.0;
+attack_config.dos_probability = 0.4;
+attack_config.gps_bias = [10; 8; 5];
+attack_config.gps_drift = [0.5; 0.5; 0.2];
+attack_config.sensor_bias = 5.0;
+attack_config.sensor_noise = 2.0;
 
-fprintf('\nThống kê khoảng cách giữa các drone:\n');
-fprintf('  Trung bình: %.2f m\n', mean(all_dist));
-fprintf('  Độ lệch chuẩn: %.2f m\n', std(all_dist));
-fprintf('  Nhỏ nhất: %.2f m\n', min(all_dist));
-fprintf('  Lớn nhất: %.2f m\n', max(all_dist));
+%% ========================================================================
+% 5. TẠO BUS VÀ PARAMETER VỚI KÍCH THƯỚC CỐ ĐỊNH (QUAN TRỌNG)
+%% ========================================================================
 
-% Kiểm tra với d_safe và d_max
-fprintf('\n=== KIỂM TRA AN TOÀN ===\n');
-fprintf('d_safe = %.2f m\n', d_safe);
-fprintf('d_max = %.2f m\n', d_max);
+% Gom tất cả vào một struct chính
+params.graph_params = graph_params;
+params.leader_params = leader_params;
+params.formation_params = formation_params;
+params.avoid_params = avoid_params;
+params.conn_params = conn_params;
+params.estimation_params = estimation_params;
+params.prior_params = prior_params;
 
-if min(all_dist) < d_safe
-    fprintf('⚠️  CẢNH BÁO: Khoảng cách nhỏ nhất (%.2f m) < d_safe (%.2f m)\n', min(all_dist), d_safe);
-else
-    fprintf('✓ Khoảng cách nhỏ nhất (%.2f m) > d_safe (%.2f m)\n', min(all_dist), d_safe);
-end
+% --- ÉP BUỘC KÍCH THƯỚC CỦA CÁC MẢNG TRONG STRUCT ---
+% Đây là chìa khóa để trị lỗi "variable-size"
+params.graph_params.edges = double(params.graph_params.edges);
+params.graph_params.n_drones = double(params.graph_params.n_drones);
+params.graph_params.dim = double(params.graph_params.dim);
+params.formation_params.d_star = double(params.formation_params.d_star);
+params.conn_params.Q = double(params.conn_params.Q);
 
-if max(all_dist) > d_max
-    fprintf('⚠️  CẢNH BÁO: Khoảng cách lớn nhất (%.2f m) > d_max (%.2f m)\n', max(all_dist), d_max);
-else
-    fprintf('✓ Khoảng cách lớn nhất (%.2f m) < d_max (%.2f m)\n', max(all_dist), d_max);
-end
+% --- Tạo Bus từ struct đã được "cố định hóa" ---
+busInfo = Simulink.Bus.createObject(params);
+% MATLAB thường đặt tên Bus là 'slBus1', 'slBus2',... Hãy lấy đúng tên
+bus_name = busInfo.busName; 
+assignin('base', 'params_bus', eval(bus_name));
+fprintf('Bus name: %s\n', bus_name);
 
-% Khoảng cách trong từng ô vuông
-fprintf('\nKhoảng cách trong ô vuông 1 (cạnh = %.2f m):\n', square_size);
-fprintf('  Cạnh: %.2f m\n', square_size);
-fprintf('  Đường chéo: %.2f m\n', square_size*sqrt(2));
+% --- Tạo Simulink.Parameter trong Model Workspace ---
+model_name = 'Formation_Based_Distance';
+hws = get_param(model_name, 'ModelWorkspace');
+hws.clear();
 
-fprintf('\nKhoảng cách giữa các ô vuông:\n');
-fprintf('  Ô 1 và ô 2: cách nhau %d m\n', 10);
-fprintf('  Ô 1 và ô 3: cách nhau %d m\n', 10);
+% Tạo Parameter object
+p = Simulink.Parameter;
+p.Value = params;
+p.DataType = ['Bus: ', bus_name];
+p.CoderInfo.StorageClass = 'ExportedGlobal'; % Cho phép dùng global
+
+% Gán vào Model Workspace
+assignin(hws, 'params', p);
+
+fprintf('✅ Đã tạo Parameter "params" trong Model Workspace với Bus: %s\n', bus_name);

@@ -9,7 +9,7 @@ function Trajectory(block)
 % -----------------------------
 function setup(block)
     % 3 input ports
-    block.NumInputPorts = 3;
+    block.NumInputPorts = 2;
     
     % Port 1: số lượng phương tiện (scalar)
     block.InputPort(1).Dimensions = 1;
@@ -22,12 +22,6 @@ function setup(block)
     block.InputPort(2).DatatypeID = 0;
     block.InputPort(2).Complexity = 'Real';
     block.InputPort(2).DirectFeedthrough = true;
-    
-    % Port 3: ma trận edges (N x 2)
-    block.InputPort(3).Dimensions = [-1; -1];  % dynamic
-    block.InputPort(3).DatatypeID = 0;
-    block.InputPort(3).Complexity = 'Real';
-    block.InputPort(3).DirectFeedthrough = true;
     
     % Không có output port
     block.NumOutputPorts = 0;
@@ -89,24 +83,8 @@ function Outputs(block)
     current_pos = reshape(pos_vec, 3, n);
     
     % Ma trận edges từ input port 3
-    edges_data = block.InputPort(3).Data;
-    if isempty(edges_data)
-        % Nếu không có edges, tạo đồ thị đầy đủ
-        edges = [];
-        for i = 1:n
-            for j = i+1:n
-                edges = [edges; i, j];
-            end
-        end
-    else
-        % Xác định kích thước của edges
-        dims = block.InputPort(3).Dimensions;
-        if length(dims) == 2
-            edges = reshape(edges_data, dims(1), dims(2));
-        else
-            edges = edges_data;
-        end
-    end
+    global edges;
+    
     n_edges = size(edges, 1);
     
     % =====================================================================
@@ -223,7 +201,7 @@ function Outputs(block)
         ydata = squeeze(pos_history(2, i, 1:history_count));
         zdata = squeeze(pos_history(3, i, 1:history_count));
         
-        set(traj_handles(i), 'XData', xdata, 'YData', ydata, 'ZData', zdata);
+        % set(traj_handles(i), 'XData', xdata, 'YData', ydata, 'ZData', zdata);
         set(point_handles(i), 'XData', current_pos(1,i), ...
                               'YData', current_pos(2,i), ...
                               'ZData', current_pos(3,i));
