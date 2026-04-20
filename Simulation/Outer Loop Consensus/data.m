@@ -21,7 +21,7 @@ leader_params.beta_leader = 20;
 
 formation_params = struct();
 formation_params.alpha = 0.1;
-formation_params.K2 = 5;
+formation_params.K2 = 25;
 formation_params.beta = 5;
 formation_params.kp = 10;
 formation_params.kd = 2;
@@ -41,10 +41,11 @@ conn_params.d_max = 100;
 estimation_params = struct();
 estimation_params.mu = 1;
 
-prior_params.K1 = 2;
-prior_params.k_conn = 0.5;
+prior_params.K1 = 5;
+prior_params.k_form = 2;
+prior_params.k_conn = 1;
 prior_params.k_avoid = 5;
-prior_params.k_height = 25;
+prior_params.k_height = 50;
 
 
 
