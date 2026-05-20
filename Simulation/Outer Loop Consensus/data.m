@@ -34,7 +34,8 @@ avoid_params.d_safe = 3;
 
 
 conn_params = struct();
-conn_params.omega = 30;
+conn_params.omega = 20;
+conn_params.epsilon = 0.4547;
 conn_params.alpha = 4;
 conn_params.d_max = 100;
 
@@ -151,12 +152,36 @@ fprintf('Tổng: %d cạnh\n', n_edges);
 
 % Tính khoảng cách mong muốn
 
-formation_params.d_star = zeros(n_edges, 1);
+formation_params.d_star1 = zeros(n_edges, 1);
 
 for e = 1:n_edges
     i = graph_params.edges(e,1);
     j = graph_params.edges(e,2);
-    formation_params.d_star(e) = norm(p_rel_star(:,i) - p_rel_star(:,j));
+    formation_params.d_star1(e) = norm(p_rel_star(:,i) - p_rel_star(:,j));
+end
+
+p_triangle = zeros(10, 3);
+
+formation_params.d_star2 = zeros(n_edges, 1);
+
+% Khoang cach giua cac drone (canh tam giac deu)
+a = 10;  % met
+
+% Tao luoi tam giac
+idx = 1;
+for row = 1:4  % 4 hang
+    y = -(row-1) * a * sqrt(3)/2;  % toa do y (truc dung)
+    for col = 1:row
+        x = (col - (row+1)/2) * a;
+        p_triangle(idx,:) = [x, y, 0];
+        idx = idx + 1;
+    end
+end
+
+for e = 1:n_edges
+    i = graph_params.edges(e, 1);
+    j = graph_params.edges(e, 2);
+    formation_params.d_star2(e) = norm(p_triangle(i, :) - p_triangle(j, :));
 end
 
 %% ========================================================================
@@ -220,7 +245,8 @@ params.prior_params = prior_params;
 params.graph_params.edges = double(params.graph_params.edges);
 params.graph_params.n_drones = double(params.graph_params.n_drones);
 params.graph_params.dim = double(params.graph_params.dim);
-params.formation_params.d_star = double(params.formation_params.d_star);
+params.formation_params.d_star1 = double(params.formation_params.d_star1);
+params.formation_params.d_star2 = double(params.formation_params.d_star2);
 params.conn_params.Q = double(params.conn_params.Q);
 
 % --- Tạo Bus từ struct đã được "cố định hóa" ---

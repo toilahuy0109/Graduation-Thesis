@@ -1,0 +1,36 @@
+delta = 0.5;
+omega = 20;
+
+sigma = @(y) 1/(1 + exp(-omega*y));
+
+a = @(d) sigma(delta - d/conn_params.d_max);
+
+d = linspace(0,100,1000);
+a_data = zeros(1, length(d));
+
+for i = 1:length(d)
+    a_data(i) = a(d(i));
+end
+
+figure;
+set(gca, 'Color', 'w');
+set(gcf, 'Color', 'w');
+
+hold on;
+grid on;
+box on;
+
+plot(d, a_data, 'Color', 'blue', 'LineWidth', 1.2);
+
+xlabel('$d_{ij}$', 'Interpreter', 'latex', 'FontSize', 18);
+ylabel('$a_{ij}(p(t))$', 'Interpreter', 'latex', 'FontSize', 18);
+
+x0 = delta*conn_params.d_max;
+y0 = a(x0);
+
+plot(x0, y0, 'ro', 'MarkerSize', 8, 'MarkerFaceColor', 'r');
+
+plot([x0 x0], [0 y0], '--k', 'LineWidth', 1);
+plot([0 x0], [y0 y0], '--k', 'LineWidth', 1);
+
+annotation('textarrow', [])
