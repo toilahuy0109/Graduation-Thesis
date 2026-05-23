@@ -9,3 +9,6 @@ bám con mồi, định vị con mồi trong hệ quy chiếu toàn cục
 
 Giả sử chỉ có 2 follower theo dõi được con mồi, nhưng không có gps, thì nó sẽ sử dụng dữ liệu từ nút tham chiếu và khoảng cách để ước lượng vị trí của con mồi trong hệ quy chiếu toàn cục.
 
+
+Link papar for stochastic MPC formulation (Proof for linear system)
+https://ar5iv.labs.arxiv.org/html/2304.00069
