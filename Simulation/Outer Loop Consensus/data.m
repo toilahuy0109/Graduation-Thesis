@@ -40,7 +40,7 @@ conn_params.alpha = 4;
 conn_params.d_max = 100;
 
 estimation_params = struct();
-estimation_params.mu = 1;
+estimation_params.mu = 0.2;
 
 prior_params.K1 = 5;
 prior_params.k_form = 2;
