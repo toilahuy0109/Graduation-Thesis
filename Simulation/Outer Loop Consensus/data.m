@@ -133,6 +133,7 @@ edges_diagonal = [
 
 % Ghép tất cả edges
 
+
 graph_params.edges = [edges_center; edges_circle; edges_diagonal];
 n_edges = size(graph_params.edges, 1);
 
