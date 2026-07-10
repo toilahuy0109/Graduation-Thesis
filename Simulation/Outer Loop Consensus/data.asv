@@ -1,241 +1,277 @@
-%% ============================================
-%  DATA ANALYSIS - FROM out.logsout
-%  Lấy dữ liệu từ Signal Logging của Simulink
-% ============================================
+clear all; clc;
 
-%% ============================================
-%  1. KIỂM TRA VÀ LẤY DỮ LIỆU TỪ out.logsout
-% ============================================
+%% ========================================================================
+% 1. GIÁ TRỊ KHỞI TẠO
+%% ========================================================================
 
-fprintf('=== LOADING DATA FROM out.logsout ===\n');
+params = struct();
 
-logsout = out.logsout;
+%% Parameters
+
+graph_params = struct();
+graph_params.n_drones = 10;
+graph_params.n_vertex = graph_params.n_drones;
+graph_params.dim = 3;
 
 
-% Lấy dữ liệu p (vị trí)
-p_data = logsout.getElement('p');
-t = p_data.Values.Time;
-p_vals = p_data.Values.Data;
+leader_params = struct();
+leader_params.gamma_leader = 5;
+leader_params.beta_leader = 20;
 
-    v_data = logsout.getElement('v');
-    v_vals = v_data.Values.Data;
 
-    tout_data = logsout.getElement('tout');
-    t = p_data.Values.Time;
+formation_params = struct();
+formation_params.alpha = 0.1;
+formation_params.K2 = 3;
+formation_params.beta = 5;
+formation_params.kp = 5;
+formation_params.kd = 10;
 
-% Xác định kích thước của p
-fprintf('Original p size: [%d, %d, %d]\n', size(p_vals));
 
-% Reshape p từ [30,1,Nt] hoặc [Nt,30] thành [Nt, 10, 3]
-if ndims(p_vals) == 3 && size(p_vals,1) == 30 && size(p_vals,3) > 1
-    % Dạng [30, 1, Nt]
-    p_vals = squeeze(p_vals);      % [30, Nt]
-    p_vals = p_vals';              % [Nt, 30]
-    Nt = size(p_vals, 1);
-    n = 10;
-    d = 3;
-    p = reshape(p_vals, [Nt, n, d]);
-elseif ndims(p_vals) == 2 && size(p_vals,2) == 30
-    % Dạng [Nt, 30]
-    Nt = size(p_vals, 1);
-    n = 10;
-    d = 3;
-    p = reshape(p_vals, [Nt, n, d]);
+avoid_params = struct();
+avoid_params.k = 0.3;
+avoid_params.alpha = 2;
+avoid_params.d_safe = 3;
+
+
+conn_params = struct();
+conn_params.omega = 20;
+conn_params.epsilon = 0.4547;
+conn_params.alpha = 4;
+conn_params.d_max = 100;
+
+estimation_params = struct();
+estimation_params.mu = 0.2;
+
+prior_params.K1 = 5;
+prior_params.k_form = 0.01;
+prior_params.k_conn = 0.02;
+prior_params.k_avoid = 0.05;
+prior_params.k_height = 0.4;
+
+
+
+% Vị trí ban đầu (random hoặc cố định)
+% Có thể dùng random hoặc set cụ thể
+use_random_initial = false;  % false để dùng vị trí cố định
+
+if use_random_initial
+    rng(42);
+    p1_init = [0; 0; 0] + 2*randn(3,1);
+    p2_init = [15; 10; 0] + 2*randn(3,1);
+    p3_init = [-10; 15; 0] + 2*randn(3,1);
+    p4_init = [5; -12; 0] + 2*randn(3,1);
+    p5_init = [-5; -8; 0] + 2*randn(3,1);
+    p6_init = [12; -5; 0] + 2*randn(3,1);
+    p7_init = [-12; 5; 0] + 2*randn(3,1);
+    p8_init = [8; 12; 0] + 2*randn(3,1);
+    p9_init = [-8; -10; 0] + 2*randn(3,1);
+    p10_init = [3; 15; 0] + 2*randn(3,1);
 else
-    error('Unexpected p dimensions: [%d, %d, %d]', size(p_vals));
+    % Vị trí ban đầu cố định
+    p1_init = [0; 0; 0];
+    p2_init = [10; 0; 0];
+    p3_init = [0; 10; 0];
+    p4_init = [-10; 0; 0];
+    p5_init = [0; -10; 0];
+    p6_init = [7; 7; 0];
+    p7_init = [-7; 7; 0];
+    p8_init = [-7; -7; 0];
+    p9_init = [7; -7; 0];
+    p10_init = [9; 5; 0];
 end
 
-% Xử lý vận tốc
-if has_velocity
-    fprintf('Original v size: [%d, %d, %d]\n', size(v_vals));
-    if ndims(v_vals) == 3 && size(v_vals,1) == 30
-        v_vals = squeeze(v_vals);
-        v_vals = v_vals';
-        v = reshape(v_vals, [Nt, n, d]);
-    elseif ndims(v_vals) == 2 && size(v_vals,2) == 30
-        v = reshape(v_vals, [Nt, n, d]);
-    else
-        v = v_vals;
+p_init = [p1_init, p2_init, p3_init, p4_init, p5_init, ...
+          p6_init, p7_init, p8_init, p9_init, p10_init];
+
+%% ========================================================================
+% 2. ĐỘI HÌNH MONG MUỐN - VÒNG TRÒN VỚI DRONE 1 Ở TÂM
+%% ========================================================================
+fprintf('\n=== ĐỘI HÌNH VÒNG TRÒN ===\n');
+
+% Bán kính vòng tròn
+R = 12;              % Bán kính vòng tròn (m)
+H = 3;               % Độ cao của các drone trên vòng tròn
+
+% Drone 1 ở tâm
+p_rel_star = zeros(graph_params.dim, graph_params.n_drones);
+p_rel_star(:,1) = [0; 0; 0];  % Drone 1 (leader) ở tâm
+
+% Tạo 9 góc đều nhau cho 9 drone còn lại
+angles = linspace(0, 2*pi, graph_params.n_drones)';  % 10 góc
+angles = angles(1:end-1);                % Lấy 9 góc đầu (bỏ góc cuối trùng góc đầu)
+
+% Phân bố đều trên vòng tròn với độ cao thay đổi
+for i = 2:graph_params.n_drones
+    theta = angles(i-1);
+    % Vị trí trên vòng tròn với độ cao thay đổi theo sin để tạo hiệu ứng 3D
+    p_rel_star(:,i) = [R * cos(theta); R * sin(theta); 0];
+end
+
+
+%% ========================================================================
+% 3. ĐỒ THỊ CỨNG VỚI CÁC CẠNH KẾT NỐI (ĐỦ 24 CẠNH)
+%% ========================================================================
+% Cạnh từ drone trung tâm (drone 1) đến tất cả các drone khác
+edges_center = [];
+for i = 2:graph_params.n_drones
+    edges_center = [edges_center; 1, i];
+end
+
+% Cạnh vòng tròn giữa các drone trên vòng tròn (kết nối các drone lân cận)
+edges_circle = [];
+for i = 2:graph_params.n_drones-1
+    edges_circle = [edges_circle; i, i+1];
+end
+edges_circle = [edges_circle; graph_params.n_drones, 2];  % Kết nối drone cuối với drone đầu
+
+% Cạnh chéo để tăng độ cứng (đảm bảo đủ 24 cạnh)
+edges_diagonal = [
+    2, 4;  3, 5;  4, 6;  5, 7;  6, 8;  7, 9;  8, 10;  9, 2;
+    2, 5;  3, 6;  4, 7;  5, 8;  6, 9;  7, 10;  8, 2;  9, 3; 
+    2, 7;  3, 8;  4, 9;  5, 10
+];
+
+% Ghép tất cả edges
+
+
+graph_params.edges = [edges_center; edges_circle; edges_diagonal];
+n_edges = size(graph_params.edges, 1);
+
+fprintf('\n=== ĐỒ THỊ ===\n');
+fprintf('Số cạnh: %d (yêu cầu tối thiểu: %d)\n', n_edges, 3*graph_params.n_drones-6);
+
+if n_edges < 3*graph_params.n_drones-6
+    fprintf('Đồ thị có %d cạnh, cần thêm %d cạnh để đủ cứng\n', n_edges, 3*graph_params.n_drones-6 - n_edges);
+else
+    fprintf('Đồ thị đủ cứng trong 3D\n');
+end
+
+% Hiển thị edges
+fprintf('\n=== DANH SÁCH EDGES ===\n');
+fprintf('Tổng: %d cạnh\n', n_edges);
+
+
+% Tính khoảng cách mong muốn
+
+formation_params.d_star1 = zeros(n_edges, 1);
+
+for e = 1:n_edges
+    i = graph_params.edges(e,1);
+    j = graph_params.edges(e,2);
+    formation_params.d_star1(e) = norm(p_rel_star(:,i) - p_rel_star(:,j));
+end
+
+p_triangle = zeros(10, 3);
+
+formation_params.d_star2 = zeros(n_edges, 1);
+
+% Khoang cach giua cac drone (canh tam giac deu)
+a = 10;  % met
+
+% Tao luoi tam giac
+idx = 1;
+for row = 1:4  % 4 hang
+    y = -(row-1) * a * sqrt(3)/2;  % toa do y (truc dung)
+    for col = 1:row
+        x = (col - (row+1)/2) * a;
+        p_triangle(idx,:) = [x, y, 0];
+        idx = idx + 1;
     end
 end
 
-% Xử lý thời gian
-if length(t) ~= Nt
-    dt = 0.01;
-    t = (0:Nt-1)' * dt;
-    fprintf('Recreated time vector, dt=%.4f s\n', dt);
-else
-    dt = t(2) - t(1);
+for e = 1:n_edges
+    i = graph_params.edges(e, 1);
+    j = graph_params.edges(e, 2);
+    formation_params.d_star2(e) = norm(p_triangle(i, :) - p_triangle(j, :));
 end
 
-fprintf('Final p size: [%d, %d, %d]\n', size(p));
-fprintf('Time: %.2f s, dt = %.4f s, Steps: %d\n', t(end), dt, Nt);
-
-%% ============================================
-%  2. LẤY DESIRED FORMATION (từ logsout nếu có)
-% ============================================
-
-if logsout.isElement('p_star')
-    p_star_data = logsout.getElement('p_star');
-    p_star = p_star_data.Values.Data;
-    if size(p_star,1) == 10 && size(p_star,2) == 3
-        % OK
-    else
-        p_star = p_star';
+%% ========================================================================
+% 4. MA TRẬN Q (CHO HOLD CONNECTION)
+%% ========================================================================
+conn_params.Q = randn(graph_params.n_drones, graph_params.n_drones-1);
+for i = 1:graph_params.n_drones-1
+    % Trừ đi thành phần theo vector đơn vị
+    conn_params.Q(:,i) = conn_params.Q(:,i) - (1/graph_params.n_drones)*(sum(conn_params.Q(:,i))) * ones(graph_params.n_drones,1);
+    % Gram-Schmidt orthogonalization
+    for j = 1:i-1
+        conn_params.Q(:,i) = conn_params.Q(:,i) - (conn_params.Q(:,j)' * conn_params.Q(:,i)) * conn_params.Q(:,j);
     end
-    fprintf('Loaded p_star from logsout\n');
-else
-    % Tạo formation mong muốn (hình tròn bán kính 12)
-    radius = 12;
-    n = 10;
-    angles = linspace(0, 2*pi, n+1)';
-    angles = angles(1:end-1);
-    p_star = radius * [cos(angles), sin(angles), zeros(n,1)];
-    fprintf('Created default p_star (radius=12)\n');
+    % Chuẩn hóa
+    if norm(conn_params.Q(:,i)) > 1e-10
+        conn_params.Q(:,i) = conn_params.Q(:,i) / norm(conn_params.Q(:,i));
+    end
 end
 
-%% ============================================
-%  3. TÍNH TOÁN METRIC (đơn giản)
-% ============================================
+fprintf('\n=== MA TRẬN Q ===\n');
+fprintf('Kích thước Q: %d x %d\n', size(conn_params.Q,1), size(conn_params.Q,2));
 
-fprintf('=== CALCULATING METRICS ===\n');
 
-% 3.1. Tâm đội hình
-center_actual = squeeze(mean(p, 2));  % [Nt, 3]
+global edges
+edges = graph_params.edges;
 
-% 3.2. Vận tốc trung bình
-if has_velocity
-    speed = squeeze(sqrt(sum(v.^2, 3)));
-else
-    % Tính từ p
-    v_calc = diff(p, 1, 1) / dt;
-    v_calc = [v_calc(1,:,:); v_calc];
-    speed = squeeze(sqrt(sum(v_calc.^2, 3)));
-end
-avg_speed = mean(speed, 2);
+%% ========================================================================
+% 7. CẤU HÌNH TẤN CÔNG
+%% ========================================================================
+attack_scenario = 1;
 
-% 3.3. Khoảng cách từ drone đến tâm
-dist_to_center = zeros(Nt, n);
-for i = 1:n
-    dist_to_center(:,i) = squeeze(sqrt(sum((p(:,i,:) - center_actual).^2, 3)));
-end
+attack_config = struct();
+attack_config.start_time = 10;
+attack_config.end_time = 25;
+attack_config.target_drones = [2, 5, 8];
 
-%% ============================================
-%  4. VẼ HÌNH
-% ============================================
+% Parameters
+attack_config.fdi_bias = [8; 6; 3];
+attack_config.fdi_scale = 2.0;
+attack_config.dos_probability = 0.4;
+attack_config.gps_bias = [10; 8; 5];
+attack_config.gps_drift = [0.5; 0.5; 0.2];
+attack_config.sensor_bias = 5.0;
+attack_config.sensor_noise = 2.0;
 
-fprintf('=== PLOTTING FIGURES ===\n');
+%% ========================================================================
+% 5. TẠO BUS VÀ PARAMETER VỚI KÍCH THƯỚC CỐ ĐỊNH (QUAN TRỌNG)
+%% ========================================================================
 
-colors = lines(n);
+% Gom tất cả vào một struct chính
+params.graph_params = graph_params;
+params.leader_params = leader_params;
+params.formation_params = formation_params;
+params.avoid_params = avoid_params;
+params.conn_params = conn_params;
+params.estimation_params = estimation_params;
+params.prior_params = prior_params;
 
-% Figure 1: 3D Trajectories
-figure('Name', '3D Trajectories', 'Position', [100, 100, 1200, 800]);
-hold on; grid on;
-for i = 1:n
-    plot3(squeeze(p(:,i,1)), squeeze(p(:,i,2)), squeeze(p(:,i,3)), ...
-          'Color', colors(i,:), 'LineWidth', 0.8);
-end
-plot3(p_star(:,1), p_star(:,2), p_star(:,3), 'k*', 'MarkerSize', 12, 'LineWidth', 2);
-xlabel('X (m)'); ylabel('Y (m)'); zlabel('Z (m)');
-title('3D Trajectories of 10 Drones');
-legend([arrayfun(@(x) sprintf('Drone %d', x), 1:n, 'UniformOutput', false), {'Desired'}], ...
-       'Location', 'best', 'FontSize', 8);
-view(45, 30);
-axis equal;
-saveas(gcf, 'Fig1_3D_Trajectories.png');
+% --- ÉP BUỘC KÍCH THƯỚC CỦA CÁC MẢNG TRONG STRUCT ---
+% Đây là chìa khóa để trị lỗi "variable-size"
+params.graph_params.edges = double(params.graph_params.edges);
+params.graph_params.n_drones = double(params.graph_params.n_drones);
+params.graph_params.dim = double(params.graph_params.dim);
+params.formation_params.d_star1 = double(params.formation_params.d_star1);
+params.formation_params.d_star2 = double(params.formation_params.d_star2);
+params.conn_params.Q = double(params.conn_params.Q);
 
-% Figure 2: XY Projection
-figure('Name', 'XY Projection', 'Position', [100, 100, 800, 800]);
-hold on; grid on;
-for i = 1:n
-    plot(squeeze(p(:,i,1)), squeeze(p(:,i,2)), 'Color', colors(i,:), 'LineWidth', 0.5);
-end
-plot(p_star(:,1), p_star(:,2), 'k*', 'MarkerSize', 12);
-xlabel('X (m)'); ylabel('Y (m)');
-title('XY Projection (Top View)');
-axis equal;
-saveas(gcf, 'Fig2_XY_Projection.png');
+% --- Tạo Bus từ struct đã được "cố định hóa" ---
+busInfo = Simulink.Bus.createObject(params);
+% MATLAB thường đặt tên Bus là 'slBus1', 'slBus2',... Hãy lấy đúng tên
+bus_name = busInfo.busName; 
+assignin('base', 'params_bus', eval(bus_name));
+fprintf('Bus name: %s\n', bus_name);
 
-% Figure 3: Final Formation Snapshot
-figure('Name', 'Final Formation', 'Position', [100, 100, 800, 800]);
-hold on; grid on;
-p_final = squeeze(p(end, :, :));
-for i = 1:n
-    scatter3(p_final(i,1), p_final(i,2), p_final(i,3), 80, colors(i,:), 'filled');
-end
-scatter3(p_final(1,1), p_final(1,2), p_final(1,3), 120, 'k', 'filled', 'DisplayName', 'Leader');
-plot3(p_star(:,1), p_star(:,2), p_star(:,3), 'r*', 'MarkerSize', 12, 'DisplayName', 'Desired');
-xlabel('X (m)'); ylabel('Y (m)'); zlabel('Z (m)');
-title('Final Formation Snapshot');
-axis equal; view(45, 30); legend('Location', 'best');
-saveas(gcf, 'Fig3_Final_Snapshot.png');
+% --- Tạo Simulink.Parameter trong Model Workspace ---
+model_name = 'Formation_Full';
+hws = get_param(model_name, 'ModelWorkspace');
+hws.clear();
 
-% Figure 4: Average Speed
-figure('Name', 'Average Speed', 'Position', [100, 100, 800, 600]);
-plot(t, avg_speed, 'g-', 'LineWidth', 2);
-xlabel('Time (s)'); ylabel('Speed (m/s)');
-title('Average Speed of Formation');
-grid on;
-saveas(gcf, 'Fig4_Average_Speed.png');
+% Tạo Parameter object
+p = Simulink.Parameter;
+p.Value = params;
+p.DataType = ['Bus: ', bus_name];
+p.CoderInfo.StorageClass = 'ExportedGlobal'; % Cho phép dùng global
 
-% Figure 5: Distance to Center
-figure('Name', 'Distance to Center', 'Position', [100, 100, 800, 600]);
-for i = 1:n
-    plot(t, dist_to_center(:,i), 'Color', colors(i,:), 'LineWidth', 0.5);
-    hold on;
-end
-xlabel('Time (s)'); ylabel('Distance (m)');
-title('Distance from Drone to Formation Center');
-grid on;
-saveas(gcf, 'Fig5_Distance_To_Center.png');
+% Gán vào Model Workspace
+assignin(hws, 'params', p);
 
-% Figure 6: Center Trajectory
-figure('Name', 'Center Trajectory', 'Position', [100, 100, 800, 800]);
-plot(center_actual(:,1), center_actual(:,2), 'b-', 'LineWidth', 2); hold on;
-plot(mean(p_star,1), mean(p_star,2), 'r*', 'MarkerSize', 15);
-xlabel('X (m)'); ylabel('Y (m)');
-title('Formation Center Trajectory');
-legend('Actual Center', 'Desired Center', 'Location', 'best');
-axis equal; grid on;
-saveas(gcf, 'Fig6_Center_Trajectory.png');
+fprintf('✅ Đã tạo Parameter "params" trong Model Workspace với Bus: %s\n', bus_name);
 
-% Figure 7: Altitude (Z) of all drones
-figure('Name', 'Altitude', 'Position', [100, 100, 800, 600]);
-for i = 1:n
-    plot(t, squeeze(p(:,i,3)), 'Color', colors(i,:), 'LineWidth', 0.5);
-    hold on;
-end
-xlabel('Time (s)'); ylabel('Z (m)');
-title('Altitude of Drones');
-grid on;
-saveas(gcf, 'Fig7_Altitude.png');
-
-% Figure 8: Initial vs Final vs Desired
-figure('Name', 'Initial vs Final', 'Position', [100, 100, 800, 800]);
-p_initial = squeeze(p(1, :, :));
-hold on; grid on;
-plot3(p_initial(:,1), p_initial(:,2), p_initial(:,3), 'ro', 'MarkerSize', 10, 'DisplayName', 'Initial');
-plot3(p_final(:,1), p_final(:,2), p_final(:,3), 'bs', 'MarkerSize', 10, 'DisplayName', 'Final');
-plot3(p_star(:,1), p_star(:,2), p_star(:,3), 'k*', 'MarkerSize', 12, 'DisplayName', 'Desired');
-xlabel('X (m)'); ylabel('Y (m)'); zlabel('Z (m)');
-title('Initial vs Final vs Desired Positions');
-legend('Location', 'best');
-axis equal; view(45, 30);
-saveas(gcf, 'Fig8_Initial_Final_Desired.png');
-
-%% ============================================
-%  5. SUMMARY
-% ============================================
-
-fprintf('\n========================================\n');
-fprintf('          SIMULATION SUMMARY\n');
-fprintf('========================================\n');
-fprintf('Number of drones: %d\n', n);
-fprintf('Simulation time: %.2f s\n', t(end));
-fprintf('Mean speed: %.4f m/s\n', mean(avg_speed));
-fprintf('Max speed: %.4f m/s\n', max(avg_speed));
-fprintf('Final center position: (%.2f, %.2f, %.2f)\n', center_actual(end,1), center_actual(end,2), center_actual(end,3));
-fprintf('Desired center position: (%.2f, %.2f, %.2f)\n', mean(p_star,1));
-fprintf('========================================\n');
-
-fprintf('\n✅ Analysis complete! 8 figures saved.\n');
+u_sat_up = 10000;
+u_sat_down = -10000;

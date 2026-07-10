@@ -81,21 +81,25 @@ end
 %  3. DRONE FORMATION PARAMETERS
 % ============================================
 n_drones = 10;
-R_form = 5.0;
-R_obs = 12.0;
+R_form = 10.0;
+R_obs = 10.0;
 
 % Fixed relative positions in body frame
-phi_i = linspace(0, 2*pi, n_drones+1)';
-phi_i = phi_i(1:end-1);
-r0 = R_form * [cos(phi_i), sin(phi_i)];
-r0(1, :) = [0, 0];          % Leader at center
+phi_i = linspace(0, 2*pi, n_drones)';
+
+r0 = zeros(10,2);
+r0(1,:) = [0, 0];
+
+for i = 1:n_drones-1
+    r0(i+1,:) = R_form * [cos(phi_i(i)), sin(phi_i(i))];
+end
 
 %% ============================================
 %  4. COST FUNCTION PARAMETERS
 % ============================================
 w_t = 20.0;                  % weight for center tracking
-w_c = 20.0;                 % weight for Gaussian attraction
-R_s = 5.0;                  % Gaussian width (m)
+w_c = 50.0;                 % weight for Gaussian attraction
+R_s = 10.0;                  % Gaussian width (m)
 R_ctrl = diag([0.1, 0.1, 0.01]);  % control penalty
 eta = 0.1;                  % learning rate
 max_iter = 10;              % gradient descent iterations
@@ -119,6 +123,9 @@ v_x = 0; v_y = 0; omega_c = 0;
 N_obs_history = zeros(N_steps, 1);
 dist_history = zeros(N_steps, 1);
 cost_history = zeros(N_steps, 1);
+track_cost_his = zeros(N_steps,1);
+u_his = zeros(N_steps,3);
+gauss_his = zeros(N_steps,1);
 
 %% ============================================
 %  7. MAIN SIMULATION LOOP
@@ -142,11 +149,13 @@ for k = 1:N_steps-1
         dJ_dtheta = 0;
         sum_gauss = [0; 0];
         sum_gauss_theta = 0;
+        gauss_value = 0;
         
         for i = 1:n_drones
             err = drones(i, :)' - prey_pos;
             d_i = norm(err);
             gauss = exp(-d_i^2 / R_s^2);
+            gauss_value = gauss_value + gauss;
             
             sum_gauss = sum_gauss + gauss * err;
             
@@ -169,12 +178,19 @@ for k = 1:N_steps-1
         omega_c = omega_c - eta * dJ_domega;
         
         % Apply constraints
-        max_speed = 5.0;
-        max_omega = pi/2;
-        v_x = max(-max_speed, min(max_speed, v_x));
-        v_y = max(-max_speed, min(max_speed, v_y));
-        omega_c = max(-max_omega, min(max_omega, omega_c));
+        % max_speed = 5.0;
+        % max_omega = pi;
+        % v_x = max(-max_speed, min(max_speed, v_x));
+        % v_y = max(-max_speed, min(max_speed, v_y));
+        % omega_c = max(-max_omega, min(max_omega, omega_c));
+
     end
+
+    u_his(k+1,1) = v_x;
+    u_his(k+1,2) = v_y;
+    u_his(k+1,3) = omega_c;
+
+    gauss_his(k+1) = gauss_value;
     
     % --- UPDATE FORMATION ---
     C_x(k+1) = C_x(k) + v_x * dt;
@@ -188,11 +204,12 @@ for k = 1:N_steps-1
     for i = 1:n_drones
         drone = [C_x(k+1), C_y(k+1)] + (Rmat * r0(i, :)')';
         d = norm(drone - prey_pos');
-        cost = cost + d^2;
+        cost = cost - w_c*exp(-d^2/R_obs^2);
         if d <= R_obs
             count = count + 1;
         end
     end
+    cost = cost + w_t*norm([C_x(k); C_y(k)] - prey_pos)^2 + [v_x, v_y, omega_c]*R_ctrl*[v_x; v_y; omega_c];
     
     N_obs_history(k+1) = count;
     dist_history(k+1) = norm([C_x(k+1); C_y(k+1)] - prey_pos);
@@ -208,127 +225,119 @@ fprintf('=== SIMULATION COMPLETE ===\n');
 %% ============================================
 %  8. PLOT RESULTS
 % ============================================
-figure('Position', [50, 50, 1400, 900]);
+% figure('Position', [50, 50, 1400, 700]);
+% 
+% % Trajectories
+% bx1 = subplot(3,1,1);
+% plot(prey_x, prey_y, 'r-', 'LineWidth', 1.5); hold on;
+% plot(C_x, C_y, 'b--', 'LineWidth', 1.5);
+% plot(prey_x(1), prey_y(1), 'ro', 'MarkerSize', 8, 'MarkerFaceColor', 'r');
+% plot(C_x(1), C_y(1), 'bo', 'MarkerSize', 8, 'MarkerFaceColor', 'b');
+% plot(prey_x(end), prey_y(end), 'rs', 'MarkerSize', 10, 'MarkerFaceColor', 'r');
+% plot(C_x(end), C_y(end), 'bs', 'MarkerSize', 10, 'MarkerFaceColor', 'b');
+% xlabel('x (m)'); ylabel('y (m)');
+% title(sprintf('Trajectories (Prey: %s)', prey_motion));
+% legend('Prey', 'Formation center', 'Start', 'End', 'Location', 'best');
+% grid on;
+% 
+% % Distance center to prey
+% bx2 = subplot(3,1,2);
+% plot(time, dist_history, 'b-', 'LineWidth', 1.5);
+% xlabel('Time (s)'); ylabel('Distance (m)');
+% title('Distance: Formation center → Prey');
+% grid on;
+% 
+% % Formation rotation angle
+% bx3 = subplot(3,1,3);
+% plot(time, rad2deg(C_theta), 'c-', 'LineWidth', 1.5);
+% xlabel('Time (s)'); ylabel('Angle (deg)');
+% title('Formation rotation angle θ_c');
+% grid on;
+% 
+% set([bx1 bx2 bx3], ...
+%     'PositionConstraint','innerposition');
 
-% Trajectories
-subplot(2,3,1);
-plot(prey_x, prey_y, 'r-', 'LineWidth', 1.5); hold on;
-plot(C_x, C_y, 'b--', 'LineWidth', 1.5);
-plot(prey_x(1), prey_y(1), 'ro', 'MarkerSize', 8, 'MarkerFaceColor', 'r');
-plot(C_x(1), C_y(1), 'bo', 'MarkerSize', 8, 'MarkerFaceColor', 'b');
-plot(prey_x(end), prey_y(end), 'rs', 'MarkerSize', 10, 'MarkerFaceColor', 'r');
-plot(C_x(end), C_y(end), 'bs', 'MarkerSize', 10, 'MarkerFaceColor', 'b');
+%% Monitor
+
+% figure('Name', 'Monitor', 'Position', [50 50 1400, 900]);
+% 
+% % Number of observing drones
+% subplot(3,1,1);
+% plot(time, N_obs_history, 'g-', 'LineWidth', 1.5); hold on;
+% yline(5, 'r--', 'LineWidth', 1.5);
+% xlabel('Time (s)'); ylabel('Number of drone');
+% title('Drones observing prey (R_{obs}=12m)');
+% ylim([0, n_drones+2]); grid on;
+% legend('N_{obs}', 'Threshold (5)', 'Location', 'best');
+% 
+% % Cost function
+% subplot(3,1,2);
+% plot(time, cost_history, 'm-', 'LineWidth', 1.5);
+% xlabel('Time (s)'); ylabel('$L(\mathbf{p}_c,\theta,\mathbf{u},t)$', 'FontSize', 14, 'Interpreter', 'latex');
+% grid on;
+% 
+% subplot(3,1,3);
+% plot(time, gauss_his, 'Color', 'red', 'LineWidth', 1.5); hold on;
+% xlabel('Time (s)'); ylabel('$\sum_{i=1}^n C_i$', 'FontSize', 14, 'Interpreter', 'latex');
+% grid on;
+% title('')
+%% Initial State and Final State
+
+figure('Name', 'Begin and End', 'Position', [50 50, 1400,450]);
+
+% Initial formation snapshot
+subplot(1,2,1);
+hold on; theta_circ = linspace(0, 2*pi, 100);
+plot(prey_x(1) + R_obs*cos(theta_circ), prey_y(1) + R_obs*sin(theta_circ), 'r--', 'LineWidth', 1);
+R_init = [cos(C_theta(1)), -sin(C_theta(1)); sin(C_theta(1)), cos(C_theta(1))];
+for i = 1:n_drones
+    drone = [C_x(1), C_y(1)] + (R_init * r0(i,:)')';
+    if i == 1
+        plot(drone(1), drone(2), 'ks', 'MarkerSize', 12, 'MarkerFaceColor','k');
+    else
+        plot(drone(1), drone(2), 'bo', 'MarkerSize', 12, 'MarkerFaceColor', 'b');
+    end
+end
+plot(prey_x(1), prey_y(1), 'r*', 'MarkerSize', 15, 'LineWidth', 2);
 xlabel('x (m)'); ylabel('y (m)');
-title(sprintf('Trajectories (Prey: %s)', prey_motion));
-legend('Prey', 'Formation center', 'Start', 'End', 'Location', 'best');
-grid on; axis equal;
+title(sprintf('Initial: N_{obs} = %d', N_obs_history(2)));
+axis equal; grid on; axis square;
 
-% Number of observing drones
-subplot(2,3,2);
-plot(time, N_obs_history, 'g-', 'LineWidth', 1.5); hold on;
-yline(5, 'r--', 'LineWidth', 1.5);
-xlabel('Time (s)'); ylabel('Count');
-title('Drones observing prey (R_{obs}=12m)');
-ylim([0, n_drones+2]); grid on;
-legend('N_{obs}', 'Threshold (5)', 'Location', 'best');
-
-% Cost function
-subplot(2,3,3);
-plot(time, cost_history, 'm-', 'LineWidth', 1.5);
-xlabel('Time (s)'); ylabel('Cost');
-title('Cost J = Σ||p_i - p_M||²');
-grid on;
-
-% Distance center to prey
-subplot(2,3,4);
-plot(time, dist_history, 'b-', 'LineWidth', 1.5);
-xlabel('Time (s)'); ylabel('Distance (m)');
-title('Distance: Formation center → Prey');
-grid on;
-
-% Formation rotation angle
-subplot(2,3,5);
-plot(time, rad2deg(C_theta), 'c-', 'LineWidth', 1.5);
-xlabel('Time (s)'); ylabel('Angle (deg)');
-title('Formation rotation angle θ_c');
-grid on;
+ax1 = gca;
 
 % Final formation snapshot
-subplot(2,3,6);
+subplot(1,2,2);
 hold on;
 theta_circ = linspace(0, 2*pi, 100);
-plot(prey_x(end) + R_obs*cos(theta_circ), prey_y(end) + R_obs*sin(theta_circ), 'r--', 'LineWidth', 1);
+obs = plot(prey_x(end) + R_obs*cos(theta_circ), prey_y(end) + R_obs*sin(theta_circ), 'r--', 'LineWidth', 1);
 R_final = [cos(C_theta(end)), -sin(C_theta(end)); sin(C_theta(end)), cos(C_theta(end))];
 for i = 1:n_drones
     drone = [C_x(end), C_y(end)] + (R_final * r0(i, :)')';
     if i == 1
-        plot(drone(1), drone(2), 'ks', 'MarkerSize', 12, 'MarkerFaceColor', 'k');
+        leader_mark = plot(drone(1), drone(2), 'ks', 'MarkerSize', 12, 'MarkerFaceColor', 'k');
     else
-        plot(drone(1), drone(2), 'bo', 'MarkerSize', 8, 'MarkerFaceColor', 'b');
+        follower_mark = plot(drone(1), drone(2), 'bo', 'MarkerSize', 8, 'MarkerFaceColor', 'b');
     end
 end
-plot(prey_x(end), prey_y(end), 'r*', 'MarkerSize', 15, 'LineWidth', 2);
+prey_mark = plot(prey_x(end), prey_y(end), 'r*', 'MarkerSize', 15, 'LineWidth', 2);
 xlabel('x (m)'); ylabel('y (m)');
 title(sprintf('Final: N_{obs} = %d', N_obs_history(end)));
-axis equal; grid on;
-legend('Observation', 'Leader', 'Follower', 'Prey', 'Location', 'best');
+grid on;
+axis equal; axis square;
 
-sgtitle('DETERMINISTIC OPTIMAL CONTROL FOR DRONE FORMATION TRACKING');
+ax2 = gca;
 
-%% ============================================
-%  9. VIDEO ANIMATION
-% ============================================
-fprintf('Creating video...\n');
+Rview = R_obs + max(vecnorm(r0,2,2)) + 1;
 
-figure('Position', [100, 100, 1000, 800]);
 
-for k = 1:5:N_steps
-    clf; hold on; grid on; axis equal;
-    xlabel('x (m)'); ylabel('y (m)');
-    title(sprintf('Drone Formation Tracking - Time: %.1f s (Prey: %s)', time(k), prey_motion));
-    
-    % Set axis limits
-    all_x = [prey_x(1:k); C_x(1:k)];
-    all_y = [prey_y(1:k); C_y(1:k)];
-    margin = 15;
-    xlim([min(all_x)-margin, max(all_x)+margin]);
-    ylim([min(all_y)-margin, max(all_y)+margin]);
-    
-    % Plot trajectories
-    plot(prey_x(1:k), prey_y(1:k), 'r-', 'LineWidth', 1);
-    plot(C_x(1:k), C_y(1:k), 'b--', 'LineWidth', 1);
-    
-    % Observation circle
-    theta_circ = linspace(0, 2*pi, 100);
-    plot(prey_x(k) + R_obs*cos(theta_circ), prey_y(k) + R_obs*sin(theta_circ), 'r--', 'LineWidth', 1);
-    
-    % Current formation
-    R_current = [cos(C_theta(k)), -sin(C_theta(k)); sin(C_theta(k)), cos(C_theta(k))];
-    for i = 1:n_drones
-        drone = [C_x(k), C_y(k)] + (R_current * r0(i, :)')';
-        if i == 1
-            plot(drone(1), drone(2), 'ks', 'MarkerSize', 10, 'MarkerFaceColor', 'k');
-        else
-            plot(drone(1), drone(2), 'bo', 'MarkerSize', 6, 'MarkerFaceColor', 'b');
-        end
-    end
-    
-    % Prey
-    plot(prey_x(k), prey_y(k), 'r*', 'MarkerSize', 12, 'LineWidth', 2);
-    
-    % Display metrics
-    text(min(all_x)+2, max(all_y)-2, sprintf('N_{obs}: %d', N_obs_history(k)), 'FontSize', 12, 'Color', 'g');
-    text(min(all_x)+2, max(all_y)-5, sprintf('Distance: %.1f m', dist_history(k)), 'FontSize', 12, 'Color', 'b');
-    
-    drawnow;
-    
-    % Write frame to video
-    frame = getframe(gcf);
-    writeVideo(v, frame);
-end
+xlim(ax1,[prey_x(1)-Rview, prey_x(1)+Rview]);
+ylim(ax1,[prey_y(1)-Rview, prey_y(1)+Rview]);
 
-close(v);
-fprintf('Video saved to: %s\n', video_filename);
+xlim(ax2,[prey_x(end)-Rview, prey_x(end)+Rview]);
+ylim(ax2,[prey_y(end)-Rview, prey_y(end)+Rview]);
+
+
+legend([obs, leader_mark, follower_mark, prey_mark],{'Observation', 'Leader', 'Follower', 'Prey'}, 'Location', 'best');
 
 %% ============================================
 %  10. STATISTICS

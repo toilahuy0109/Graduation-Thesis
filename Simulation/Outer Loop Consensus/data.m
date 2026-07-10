@@ -21,10 +21,10 @@ leader_params.beta_leader = 20;
 
 formation_params = struct();
 formation_params.alpha = 0.1;
-formation_params.K2 = 25;
+formation_params.K2 = 3;
 formation_params.beta = 5;
-formation_params.kp = 10;
-formation_params.kd = 2;
+formation_params.kp = 5;
+formation_params.kd = 10;
 
 
 avoid_params = struct();
@@ -43,10 +43,10 @@ estimation_params = struct();
 estimation_params.mu = 0.2;
 
 prior_params.K1 = 5;
-prior_params.k_form = 2;
-prior_params.k_conn = 1;
-prior_params.k_avoid = 5;
-prior_params.k_height = 50;
+prior_params.k_form = 0.01;
+prior_params.k_conn = 0.02;
+prior_params.k_avoid = 0.05;
+prior_params.k_height = 0.4;
 
 
 
@@ -104,7 +104,7 @@ angles = angles(1:end-1);                % Lấy 9 góc đầu (bỏ góc cuối
 for i = 2:graph_params.n_drones
     theta = angles(i-1);
     % Vị trí trên vòng tròn với độ cao thay đổi theo sin để tạo hiệu ứng 3D
-    p_rel_star(:,i) = [R * cos(theta); R * sin(theta); H * sin(2*theta)];
+    p_rel_star(:,i) = [R * cos(theta); R * sin(theta); 0];
 end
 
 
@@ -258,7 +258,7 @@ assignin('base', 'params_bus', eval(bus_name));
 fprintf('Bus name: %s\n', bus_name);
 
 % --- Tạo Simulink.Parameter trong Model Workspace ---
-model_name = 'Formation_Based_Distance';
+model_name = 'Formation_Full';
 hws = get_param(model_name, 'ModelWorkspace');
 hws.clear();
 
@@ -272,3 +272,6 @@ p.CoderInfo.StorageClass = 'ExportedGlobal'; % Cho phép dùng global
 assignin(hws, 'params', p);
 
 fprintf('✅ Đã tạo Parameter "params" trong Model Workspace với Bus: %s\n', bus_name);
+
+u_sat_up = 10000;
+u_sat_down = -10000;

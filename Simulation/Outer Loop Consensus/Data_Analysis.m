@@ -17,6 +17,7 @@ Phi_data = logsout.getElement('Phi');     % obstacle potential
 p_es_data = logsout.getElement('p_es');   % estimated position
 u_data = logsout.getElement('u');
 grad_data = logsout.getElement('grad');
+v_star_data = logsout.getElement('v_star');
 
 % Chuyển đổi timeseries sang mảng
 t = p_data.Values.Time;           % thời gian
@@ -29,6 +30,7 @@ Phi = Phi_data.Values.Data;       % obstacle potential
 p_es = p_es_data.Values.Data;     % estimated position
 u = u_data.Values.Data;
 grad = grad_data.Values.Data;
+v_star = v_star_data.Values.Data;
 
 %% Reshape
 Nt = size(t,1);
@@ -37,6 +39,9 @@ p_reshaped = zeros(Nt, 10, 3);
 p_es_reshaped = zeros(Nt, 10, 3);
 u_reshaped = zeros(Nt, 10, 3);
 grad_reshaped = zeros(Nt, 10, 3);
+
+v_reshaped = zeros(Nt, 10, 3);
+v_star_reshaped = zeros(Nt, 10, 3);
 
 for k = 1:Nt
     for i = 1:10
@@ -47,6 +52,14 @@ for k = 1:Nt
         p_es_reshaped(k,i,1) = p_es((i-1)*3+1, 1, k);
         p_es_reshaped(k,i,2) = p_es((i-1)*3+2, 1, k);
         p_es_reshaped(k,i,3) = p_es((i-1)*3+3, 1, k);
+
+        v_reshaped(k,i,1) = v((i-1)*3+1, 1, k);
+        v_reshaped(k,i,2) = v((i-1)*3+2, 1, k);
+        v_reshaped(k,i,3) = v((i-1)*3+3, 1, k);
+
+        v_star_reshaped(k,i,1) = v_star((i-1)*3+1, 1, k);
+        v_star_reshaped(k,i,2) = v_star((i-1)*3+2, 1, k);
+        v_star_reshaped(k,i,3) = v_star((i-1)*3+3, 1, k);
 
         if i == 1
             u_reshaped(Nt, i, 1) = 0;
@@ -72,6 +85,9 @@ p = p_reshaped;
 p_es = p_es_reshaped;
 u = u_reshaped;
 grad = grad_reshaped;
+
+v = v_reshaped;
+v_star = v_star_reshaped;
 
 n_drones = graph_params.n_drones;
 
@@ -347,8 +363,52 @@ colors = lines(n_drones);
 % xlabel('t (s)'); ylabel('$ \sum \nabla_{\mathbf{p}_i} V_2 $', 'Interpreter', 'latex', 'FontSize', 16);
 % legend('$\sum \nabla_{\mathbf{p}_i} V_2 (1)$', '$\sum \nabla_{\mathbf{p}_i} V_2 (2)$', '$\sum \nabla_{\mathbf{p}_i} V_2 (1)$', 'Interpreter', 'latex', 'FontSize', 12);
 
+%% Error v-v_star
 
+figure('Name', 'Velocity Error', 'Position',[50 50 1400 800]);
 
+vel_err = zeros(Nt, n_drones, 3);
 
+for k = 1:Nt
+    for i = 1:n_drones
+        if i == 1
+            vel_err(k,1,1) = v(k,1,1) - v_ref(1,1,k);
+            vel_err(k,1,2) = v(k,1,2) - v_ref(2,1,k);
+            vel_err(k,1,3) = v(k,1,3) - v_ref(3,1,k);
+        else
+            vel_err(k,i,:) = v(k,i,:) - v_star(k,i,:);
+        end
+    end
+end
+
+subplot(3,1,1);
+
+hold on; grid on;
+
+for i = 1:n_drones
+    plot(t(:,1), u(:,i,1), 'Color', colors(i,:), 'LineWidth', 1.2, 'DisplayName', sprintf('Drone %d',i));
+end
+
+xlabel('t (s)'); ylabel('$u_x$', 'Interpreter', 'latex', 'FontSize', 16);
+
+subplot(3,1,2);
+hold on; grid on;
+
+for i = 1:n_drones
+    plot(t(:,1), u(:,i,2), 'Color', colors(i,:), 'LineWidth', 1.2, 'DisplayName', sprintf('Drone %d',i));
+end
+
+xlabel('t (s)'); ylabel('$u_y$', 'Interpreter', 'latex', 'FontSize', 16);
+
+subplot(3,1,3);
+hold on; grid on;
+
+for i = 1:n_drones
+    plot(t(:,1), u(:,i,3), 'Color', colors(i,:), 'LineWidth', 1.2, 'DisplayName', sprintf('Drone %d',i));
+end
+
+xlabel('t (s)'); ylabel('$u_z$', 'Interpreter', 'latex', 'FontSize', 16);
+
+legend('Location', 'best', 'FontSize', 8, 'NumColumns', 3);
 
 
